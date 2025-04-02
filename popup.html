@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="utf-8">
+	<title>Cookie Consent Manager</title>
+	<style>
+		body {
+			font-family: Arial, sans-serif;
+			width: 350px;
+			margin: 0;
+			padding: 0;
+			background-color: #f9f9f9;
+		}
+		
+		.container {
+			padding: 15px;
+		}
+		
+		h1 {
+			font-size: 18px;
+			margin-top: 0;
+			color: #333;
+		}
+		
+		.toggle-container {
+			display: flex;
+			align-items: center;
+			margin-bottom: 10px;
+		}
+		
+		.toggle-label {
+			flex-grow: 1;
+			font-size: 14px;
+		}
+		
+		.toggle {
+			position: relative;
+			display: inline-block;
+			width: 48px;
+			height: 24px;
+		}
+		
+		.toggle input {
+			opacity: 0;
+			width: 0;
+			height: 0;
+		}
+		
+		.slider {
+			position: absolute;
+			cursor: pointer;
+			top: 0;
+			left: 0;
+			right: 0;
+			bottom: 0;
+			background-color: #ccc;
+			transition: .4s;
+			border-radius: 24px;
+		}
+		
+		.slider:before {
+			position: absolute;
+			content: "";
+			height: 18px;
+			width: 18px;
+			left: 3px;
+			bottom: 3px;
+			background-color: white;
+			transition: .4s;
+			border-radius: 50%;
+		}
+		
+		input:checked + .slider {
+			background-color: #673AB7;
+		}
+		
+		input:checked + .slider:before {
+			transform: translateX(24px);
+		}
+		
+		#status {
+			margin-top: 15px;
+			padding: 10px;
+			border-radius: 5px;
+			background-color: #e8f5e9;
+			font-size: 13px;
+		}
+		
+		.tabs {
+			display: flex;
+			border-bottom: 1px solid #ddd;
+			background-color: #fff;
+		}
+		
+		.tab {
+			padding: 10px 15px;
+			cursor: pointer;
+			font-size: 14px;
+			position: relative;
+		}
+		
+		.tab.active {
+			border-bottom: 2px solid #673AB7;
+			color: #673AB7;
+			font-weight: bold;
+		}
+		
+		.tab-content {
+			display: none;
+		}
+		
+		.tab-content.active {
+			display: block;
+		}
+		
+		#dialogCount {
+			background-color: #E53935;
+			color: white;
+			border-radius: 50%;
+			width: 16px;
+			height: 16px;
+			display: none;
+			font-size: 12px;
+			text-align: center;
+			line-height: 16px;
+			position: absolute;
+			top: 5px;
+			right: 5px;
+		}
+		
+		.dialog-item {
+			background-color: white;
+			margin-bottom: 10px;
+			padding: 10px;
+			border-radius: 5px;
+			box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+			cursor: pointer;
+		}
+		
+		.dialog-item:hover {
+			background-color: #f5f5f5;
+		}
+		
+		.domain {
+			font-weight: bold;
+			margin-bottom: 5px;
+		}
+		
+		.method, .date, .region {
+			font-size: 12px;
+			color: #666;
+			margin-bottom: 5px;
+		}
+		
+		.no-dialogs, .no-details {
+			text-align: center;
+			padding: 20px;
+			color: #999;
+		}
+		
+		#dialogPreviewContainer {
+			margin-top: 10px;
+			padding: 10px;
+			background-color: white;
+			border-radius: 5px;
+			box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+			display: none;
+		}
+		
+		#dialogFrame {
+			width: 100%;
+			height: 250px;
+			border: none;
+			border-bottom: 1px solid #ddd;
+			margin-bottom: 15px;
+		}
+		
+		.rating-buttons {
+			display: flex;
+			justify-content: space-between;
+			margin-top: 10px;
+			margin-bottom: 15px;
+		}
+		
+		.rating-buttons button {
+			padding: 8px 12px;
+			border: none;
+			border-radius: 3px;
+			cursor: pointer;
+		}
+		
+		#goodMatchBtn {
+			background-color: #4CAF50;
+			color: white;
+		}
+		
+		#badMatchBtn {
+			background-color: #F44336;
+			color: white;
+		}
+		
+		#submissionStatus {
+			margin-top: 10px;
+			margin-bottom: 15px;
+			font-size: 13px;
+			text-align: center;
+			color: #666;
+		}
+		
+		.consent-status {
+			margin-top: 15px;
+			padding: 10px;
+			border-radius: 5px;
+			font-size: 13px;
+			margin-bottom: 10px;
+		}
+		
+		.consent-granted {
+			background-color: #e8f5e9;
+			color: #2E7D32;
+		}
+		
+		.consent-not-granted {
+			background-color: #ffebee;
+			color: #C62828;
+		}
+		
+		.grant-consent, .withdraw-consent {
+			padding: 8px 12px;
+			border: none;
+			border-radius: 3px;
+			cursor: pointer;
+			margin-top: 5px;
+			font-size: 13px;
+		}
+		
+		.grant-consent {
+			background-color: #673AB7;
+			color: white;
+		}
+		
+		.withdraw-consent {
+			background-color: #F44336;
+			color: white;
+		}
+		
+		.history-item {
+			background-color: white;
+			margin-bottom: 10px;
+			padding: 10px;
+			border-radius: 5px;
+			box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+			cursor: pointer;
+		}
+		
+		.history-item.reviewed {
+			border-left: 4px solid #4CAF50;
+		}
+		
+		.history-item.not-reviewed {
+			border-left: 4px solid #FFC107;
+		}
+		
+		.history-controls {
+			display: flex;
+			justify-content: space-between;
+			margin-bottom: 10px;
+		}
+		
+		.filter-select {
+			padding: 5px;
+			border-radius: 3px;
+			border: 1px solid #ddd;
+		}
+		
+		.clear-button {
+			padding: 5px 10px;
+			background-color: #f44336;
+			color: white;
+			border: none;
+			border-radius: 3px;
+			cursor: pointer;
+		}
+		
+		.button-display-container {
+			margin: 10px 0;
+			display: flex;
+			flex-wrap: wrap;
+			gap: 5px;
+		}
+		
+		.cookie-button {
+			padding: 5px 10px;
+			border-radius: 3px;
+			border: 1px solid #ddd;
+			background-color: #f9f9f9;
+			cursor: pointer;
+			font-size: 12px;
+			min-width: 80px;
+			text-align: center;
+			margin-bottom: 5px;
+			transition: background-color 0.2s;
+		}
+		
+		.cookie-button:hover {
+			background-color: #e8f5e9;
+		}
+		
+		.cookie-button.accept {
+			border-left: 3px solid #4CAF50;
+		}
+		
+		.cookie-button.necessary {
+			border-left: 3px solid #2196F3;
+		}
+		
+		.cookie-button.decline {
+			border-left: 3px solid #F44336;
+		}
+		
+		.cookie-button.customise {
+			border-left: 3px solid #FFC107;
+		}
+		
+		/* Styles for preview area visibility */
+		.preview-active {
+			display: grid;
+			grid-template-columns: 1fr 2fr;
+			gap: 10px;
+		}
+		
+		.preview-active #dialogsList {
+			max-height: 400px;
+			overflow-y: auto;
+		}
+		
+		.preview-active #dialogPreviewContainer {
+			display: block;
+			height: 400px;
+			overflow-y: auto;
+			border-left: 1px solid #ddd;
+			padding-left: 10px;
+		}
+		
+		/* Active item styling */
+		.dialog-item.active, .history-item.active {
+			border-left: 4px solid #673AB7;
+			background-color: #f0e8ff;
+		}
+		
+		/* Dialog frame styling */
+		#dialogFrame {
+			width: 100%;
+			height: 250px;
+			border: none;
+			border-bottom: 1px solid #ddd;
+			margin-bottom: 15px;
+		}
+		
+		/* Dialog frame link styles */
+		.iframe-link {
+			color: #673AB7;
+			text-decoration: underline;
+			cursor: pointer;
+		}
+		
+		/* Preview tabs styling */
+		.preview-tabs {
+			display: flex;
+			border-bottom: 1px solid #ddd;
+			margin-bottom: 10px;
+		}
+		
+		.preview-tab {
+			padding: 8px 15px;
+			cursor: pointer;
+			background-color: #f5f5f5;
+			border: 1px solid #ddd;
+			border-bottom: none;
+			margin-right: 4px;
+			border-radius: 4px 4px 0 0;
+		}
+		
+		.preview-tab.active {
+			background-color: white;
+			border-bottom: 1px solid white;
+			margin-bottom: -1px;
+			font-weight: bold;
+			color: #673AB7;
+		}
+		
+		.preview-tab-content {
+			display: none;
+		}
+		
+		.preview-tab-content.active {
+			display: block;
+		}
+		
+		/* Details tab styling */
+		.details-content {
+			padding: 10px;
+		}
+		
+		#detailedInfo {
+			margin-bottom: 15px;
+			font-size: 14px;
+			line-height: 1.5;
+		}
+		
+		.action-buttons {
+			display: flex;
+			gap: 10px;
+			margin-top: 15px;
+		}
+		
+		.action-button {
+			padding: 8px 12px;
+			background-color: #673AB7;
+			color: white;
+			border: none;
+			border-radius: 3px;
+			cursor: pointer;
+		}
+		
+		.action-button:hover {
+			background-color: #5e35b1;
+		}
+		
+		.link-item {
+			background-color: #e8f5e9;
+			padding: 5px 10px;
+			border-radius: 3px;
+			margin: 5px 0;
+			border-left: 3px solid #4caf50;
+		}
+		
+		.link-item a {
+			color: #2196F3;
+			text-decoration: none;
+			word-break: break-all;
+		}
+		
+		.detail-section {
+			margin-bottom: 20px;
+			background-color: #f9f9f9;
+			padding: 12px;
+			border-radius: 5px;
+		}
+		
+		.detail-item {
+			margin-bottom: 8px;
+			line-height: 1.4;
+		}
+		
+		.links-section h4 {
+			color: #673AB7;
+			margin-bottom: 10px;
+		}
+		
+		#noSelectionMessage {
+			background-color: #e3f2fd;
+			padding: 20px;
+			border-radius: 5px;
+			margin-top: 20px;
+			text-align: center;
+		}
+		
+		#noSelectionMessage p {
+			color: #1976D2;
+			font-size: 16px;
+		}
+	</style>
+</head>
+<body>
+	<div class="tabs">
+		<div class="tab active" data-tab="settings">Settings</div>
+		<div class="tab" data-tab="review">Review & History <span id="dialogCount">0</span></div>
+		<div class="tab" data-tab="details">Details</div>
+	</div>
+	
+	<div id="settings-tab" class="tab-content active">
+		<div class="container">
+			<h1>Cookie Consent Manager</h1>
+			
+			<div class="toggle-container">
+				<div class="toggle-label">Enabled</div>
+				<label class="toggle">
+					<input type="checkbox" id="enabled" checked>
+					<span class="slider"></span>
+				</label>
+			</div>
+			
+			<div class="toggle-container">
+				<div class="toggle-label">Auto Accept (Automatically click buttons)</div>
+				<label class="toggle">
+					<input type="checkbox" id="autoAccept" checked>
+					<span class="slider"></span>
+				</label>
+			</div>
+			
+			<div class="toggle-container">
+				<div class="toggle-label">Smart Mode (Detect cookie banners)</div>
+				<label class="toggle">
+					<input type="checkbox" id="smartMode" checked>
+					<span class="slider"></span>
+				</label>
+			</div>
+			
+			<div class="toggle-container">
+				<div class="toggle-label">Cloud Mode (Use selector database)</div>
+				<label class="toggle">
+					<input type="checkbox" id="cloudMode" checked>
+					<span class="slider"></span>
+				</label>
+			</div>
+			
+			<div class="toggle-container">
+				<div class="toggle-label">Privacy Mode</div>
+				<label class="toggle">
+					<input type="checkbox" id="privacyMode" checked>
+					<span class="slider"></span>
+				</label>
+			</div>
+			
+			<div class="toggle-container">
+				<div class="toggle-label">GDPR Compliance (Prefer necessary cookies)</div>
+				<label class="toggle">
+					<input type="checkbox" id="gdprCompliance" checked>
+					<span class="slider"></span>
+				</label>
+			</div>
+			
+			<div id="status">Status: Extension enabled</div>
+			
+			<div id="dataCollectionConsentStatus" class="consent-status"></div>
+			<button id="dataCollectionConsentBtn" class="grant-consent">Grant Consent</button>
+		</div>
+	</div>
+	
+	<div id="review-tab" class="tab-content">
+		<div class="container">
+			<h1>Cookie Dialogs Review & History</h1>
+			
+			<div class="history-controls">
+				<select id="historyFilter" class="filter-select">
+					<option value="all">All Actions</option>
+					<option value="accept_all">Accept All</option>
+					<option value="necessary_only">Necessary Only</option>
+					<option value="essential_only">Essential Only</option>
+					<option value="decline">Decline</option>
+					<option value="customise">Customise</option>
+				</select>
+				<button id="clearHistoryBtn" class="clear-button">Clear History</button>
+			</div>
+			
+			<div id="historyList">
+				<div id="dialogsList"></div>
+			</div>
+		</div>
+	</div>
+	
+	<div id="details-tab" class="tab-content">
+		<div class="container">
+			<h1>Cookie Dialog Details</h1>
+			
+			<div id="noSelectionMessage" class="no-details">
+				<p>Select a dialog from the Review & History tab to view details.</p>
+			</div>
+			
+			<div id="dialogDetailContainer" style="display: none;">
+				<iframe id="dialogFrame"></iframe>
+				<div class="button-display-container"></div>
+				<div class="rating-buttons">
+					<button id="goodMatchBtn">Good Match</button>
+					<button id="badMatchBtn">Bad Match</button>
+				</div>
+				<div id="submissionStatus">Rate this match to submit to the cloud database</div>
+				
+				<div class="details-content">
+					<h3>Cookie Dialog Information</h3>
+					<div id="detailedInfo"></div>
+					<div class="action-buttons">
+						<button id="copyLinkBtn" class="action-button">Copy Link</button>
+						<button id="viewSourceBtn" class="action-button">View Source</button>
+						<button id="exportBtn" class="action-button">Export</button>
+					</div>
+				</div>
+			</div>
+		</div>
+	</div>
+	
+	<script src="popup.js"></script>
+</body>
+</html> 

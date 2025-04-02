@@ -1,0 +1,6 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+NO SPECIAL CASES HARDCODED. The smart formula should be able to handle it, or do nothing.
