@@ -78,6 +78,46 @@
 			transform: translateX(24px);
 		}
 		
+		/* Tooltip styles */
+		.tooltip-container {
+			position: relative;
+		}
+		
+		.tooltip-icon {
+			display: inline-block;
+			width: 16px;
+			height: 16px;
+			background-color: #673AB7;
+			color: white;
+			border-radius: 50%;
+			text-align: center;
+			font-size: 12px;
+			line-height: 16px;
+			margin-left: 5px;
+			cursor: pointer;
+		}
+		
+		.tooltip-text {
+			display: none;
+			position: absolute;
+			background-color: #f9f9f9;
+			border: 1px solid #ddd;
+			border-radius: 4px;
+			padding: 8px;
+			width: 220px;
+			font-size: 12px;
+			color: #333;
+			box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+			left: 0;
+			top: 100%;
+			margin-top: 5px;
+			z-index: 100;
+		}
+		
+		.toggle-icon:hover + .tooltip-text {
+			display: block;
+		}
+		
 		#status {
 			margin-top: 15px;
 			padding: 10px;
@@ -246,19 +286,77 @@
 		
 		.history-item {
 			background-color: white;
-			margin-bottom: 10px;
+			margin-bottom: 8px;
 			padding: 10px;
 			border-radius: 5px;
 			box-shadow: 0 1px 3px rgba(0,0,0,0.1);
 			cursor: pointer;
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
 		}
 		
-		.history-item.reviewed {
-			border-left: 4px solid #4CAF50;
+		.history-item:hover {
+			background-color: #f5f5f5;
 		}
 		
-		.history-item.not-reviewed {
-			border-left: 4px solid #FFC107;
+		.history-item.active {
+			border-left: 3px solid #673AB7;
+		}
+		
+		.history-item .site-info {
+			flex-grow: 1;
+		}
+		
+		.history-item .indicators {
+			display: flex;
+			align-items: center;
+			gap: 5px;
+		}
+		
+		.site-indicator {
+			width: 12px;
+			height: 12px;
+			border-radius: 50%;
+			display: inline-block;
+		}
+		
+		.current-page {
+			background-color: #4CAF50;
+			margin-right: 4px;
+		}
+		
+		.auto-accepted {
+			background-color: #2196F3;
+		}
+		
+		.detected-elements-container {
+			margin-bottom: 20px;
+		}
+		
+		.element-row {
+			display: flex;
+			align-items: center;
+			margin-bottom: 8px;
+			padding: 8px;
+			background-color: white;
+			border-radius: 4px;
+			box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+		}
+		
+		.element-text {
+			flex-grow: 1;
+			margin-right: 10px;
+			font-family: monospace;
+			font-size: 12px;
+			word-break: break-all;
+		}
+		
+		.element-type-select {
+			min-width: 120px;
+			padding: 6px;
+			border-radius: 4px;
+			border: 1px solid #ddd;
 		}
 		
 		.history-controls {
@@ -477,56 +575,69 @@
 		<div class="tab active" data-tab="settings">Settings</div>
 		<div class="tab" data-tab="review">Review & History <span id="dialogCount">0</span></div>
 		<div class="tab" data-tab="details">Details</div>
+		<div class="tab" data-tab="analyze">Analyze Source</div>
 	</div>
 	
 	<div id="settings-tab" class="tab-content active">
 		<div class="container">
 			<h1>Cookie Consent Manager</h1>
 			
-			<div class="toggle-container">
-				<div class="toggle-label">Enabled</div>
+			<div class="toggle-container tooltip-container">
+				<div class="toggle-label">Enabled <span class="tooltip-icon">?</span>
+					<span class="tooltip-text">Turns the extension on or off. When disabled, Cookie Consent Manager will not interact with any cookie banners.</span>
+				</div>
 				<label class="toggle">
 					<input type="checkbox" id="enabled" checked>
 					<span class="slider"></span>
 				</label>
 			</div>
 			
-			<div class="toggle-container">
-				<div class="toggle-label">Auto Accept (Automatically click buttons)</div>
+			<div class="toggle-container tooltip-container">
+				<div class="toggle-label">Auto Accept (Automatically click buttons) <span class="tooltip-icon">?</span>
+					<span class="tooltip-text">When enabled, automatically clicks accept buttons on cookie consent dialogs without requiring user interaction.</span>
+				</div>
 				<label class="toggle">
 					<input type="checkbox" id="autoAccept" checked>
 					<span class="slider"></span>
 				</label>
 			</div>
 			
-			<div class="toggle-container">
-				<div class="toggle-label">Smart Mode (Detect cookie banners)</div>
+			<div class="toggle-container tooltip-container">
+				<div class="toggle-label">Smart Mode <span class="tooltip-icon">?</span>
+					<span class="tooltip-text">Uses advanced pattern recognition to detect and handle cookie consent dialogs across any website. Nothing sent to any server.</span>
+				</div>
 				<label class="toggle">
 					<input type="checkbox" id="smartMode" checked>
 					<span class="slider"></span>
 				</label>
 			</div>
 			
-			<div class="toggle-container">
-				<div class="toggle-label">Cloud Mode (Use selector database)</div>
+			<div class="toggle-container tooltip-container">
+				<div class="toggle-label">Cloud Mode <span class="tooltip-icon">?</span>
+					<span class="tooltip-text">Uses a database of known cookie selectors to quickly identify common consent dialogs. Requires data collection consent.</span>
+				</div>
 				<label class="toggle">
-					<input type="checkbox" id="cloudMode" checked>
+					<input type="checkbox" id="cloudMode">
 					<span class="slider"></span>
 				</label>
 			</div>
 			
-			<div class="toggle-container">
-				<div class="toggle-label">Privacy Mode</div>
+			<div class="toggle-container tooltip-container">
+				<div class="toggle-label">Privacy Mode <span class="tooltip-icon">?</span>
+					<span class="tooltip-text">Redacts personal information when submitting cookie dialog ratings to improve the cloud database. Requires data collection consent.</span>
+				</div>
 				<label class="toggle">
-					<input type="checkbox" id="privacyMode" checked>
+					<input type="checkbox" id="privacyMode">
 					<span class="slider"></span>
 				</label>
 			</div>
 			
-			<div class="toggle-container">
-				<div class="toggle-label">GDPR Compliance (Prefer necessary cookies)</div>
+			<div class="toggle-container tooltip-container">
+				<div class="toggle-label">Prefer only necessary cookies <span class="tooltip-icon">?</span>
+					<span class="tooltip-text">When enabled, the extension will prioritize selecting 'necessary cookies only' options on cookie consent banners when available, rather than accepting all cookies.</span>
+				</div>
 				<label class="toggle">
-					<input type="checkbox" id="gdprCompliance" checked>
+					<input type="checkbox" id="gdprCompliance">
 					<span class="slider"></span>
 				</label>
 			</div>
@@ -544,12 +655,10 @@
 			
 			<div class="history-controls">
 				<select id="historyFilter" class="filter-select">
-					<option value="all">All Actions</option>
-					<option value="accept_all">Accept All</option>
-					<option value="necessary_only">Necessary Only</option>
-					<option value="essential_only">Essential Only</option>
-					<option value="decline">Decline</option>
-					<option value="customise">Customise</option>
+					<option value="all">All</option>
+					<option value="auto_accepted">Auto-Accepted</option>
+					<option value="ignored">Ignored</option>
+					<option value="current_page">Current Page</option>
 				</select>
 				<button id="clearHistoryBtn" class="clear-button">Clear History</button>
 			</div>
@@ -569,11 +678,14 @@
 			</div>
 			
 			<div id="dialogDetailContainer" style="display: none;">
-				<iframe id="dialogFrame"></iframe>
-				<div class="button-display-container"></div>
+				<div class="detected-elements-container">
+					<h3>Detected Elements</h3>
+					<div id="detectedElementsList"></div>
+				</div>
+				
 				<div class="rating-buttons">
 					<button id="goodMatchBtn">Good Match</button>
-					<button id="badMatchBtn">Bad Match</button>
+					<button id="badMatchBtn">Submit Changes</button>
 				</div>
 				<div id="submissionStatus">Rate this match to submit to the cloud database</div>
 				
@@ -590,6 +702,44 @@
 		</div>
 	</div>
 	
-	<script src="popup.js"></script>
+	<div id="analyze-tab" class="tab-content">
+		<div class="container">
+			<h1>Analyze Cookie Box Source</h1>
+			<p>Paste the HTML source of a cookie consent box to test the smart formula against it.</p>
+			
+			<textarea id="sourceInput" placeholder="Paste HTML source here..." rows="10" style="width: 100%; margin-bottom: 15px; padding: 10px; border-radius: 5px; border: 1px solid #ddd;"></textarea>
+			
+			<button id="analyzeBtn" class="action-button" style="width: 100%;">Analyze Source</button>
+			
+			<div id="analysisResults" style="margin-top: 15px; display: none;">
+				<h3>Analysis Results</h3>
+				
+				<div class="detail-section">
+					<div class="detail-item">
+						<strong>Detection:</strong> <span id="detectionResult"></span>
+					</div>
+					<div class="detail-item">
+						<strong>Cookie Terms Found:</strong> <span id="cookieTermsResult"></span>
+					</div>
+					<div class="detail-item">
+						<strong>Buttons Found:</strong> <span id="buttonsResult"></span>
+					</div>
+					<div class="detail-item">
+						<strong>Accept Button:</strong> <span id="acceptButtonResult"></span>
+					</div>
+					<div class="detail-item">
+						<strong>Necessary Button:</strong> <span id="necessaryButtonResult"></span>
+					</div>
+				</div>
+				
+				<div class="detail-section">
+					<h4>Recommendations</h4>
+					<ul id="recommendationsList"></ul>
+				</div>
+			</div>
+		</div>
+	</div>
+	
+	<script src="dist/popup.bundle.js"></script>
 </body>
 </html> 

@@ -1,39 +1,112 @@
 # Cookie Consent Manager
 
-A Chrome extension that automatically accepts cookie consent warnings on websites.
+This Chrome extension helps you manage cookie consent dialogs across the web.
 
 ## Features
 
-- **Smart Mode**: Intelligently detects cookie banners based on their appearance and content, then automatically clicks accept buttons.
-- **Cloud Mode**: Uses a database of known cookie consent selectors to quickly identify and handle common cookie warnings.
-- **Customisable**: Choose which modes to enable or disable the extension completely.
-- **Dialog Capture**: Stores cookie dialogs before they're dismissed so users can review and rate them.
-- **Community Contributions**: Submit successful cookie banner matches to improve the cloud database for all users.
-- **Privacy Protection**: Automatically redacts personal information before storing or submitting cookie dialogs.
-- **First-Visit Detection**: Primarily operates on your first visit to a site, when cookie banners typically appear.
+- **Automatic Detection**: Identifies cookie consent dialogs on websites
+- **Smart Handling**: Can automatically accept or reject cookies based on your preferences
+- **Privacy Mode**: Option to automatically reject non-essential cookies
+- **Custom Rules**: Set per-site preferences for cookie handling
+- **History Tracking**: Keep track of sites where cookies were managed
+- **Detailed View**: Review detected cookie dialog elements and their details
+
+## History Screen Enhancements
+
+The history screen now provides a simplified view of all sites where cookie dialogs were detected:
+
+- List view of all sites with timestamps
+- Visual indicators for:
+  - Current page status
+  - Auto-accepted items
+  - Detected cookie elements
+- Quick access to detailed information per site
+
+## Details Page Improvements
+
+The details page for each site now includes:
+
+- Detected buttons with dropdown options for categorization
+- Category options:
+  - Accept
+  - Reject
+  - Settings
+  - Not a button
+- "Good Match" status changes to "Bad Match" when categorization is changed
+- Submissions sent for admin approval
+
+## Development
+
+### Testing
+
+The project includes a comprehensive test suite with 258 tests covering:
+
+- **Unit Tests**: Individual functions and modules
+- **Integration Tests**: Interactions between different parts of the system
+- **UI Tests**: Popup interface functionality
+- **Detection Tests**: Cookie dialog identification and button classification
+
+To run tests:
+
+```bash
+npm run test
+```
+
+Key test utilities:
+
+- Tests use a mock DOM environment via Jest
+- Simulated browser environment for extension testing
+- Mock storage for settings and history
+- Language and region detection tests
+
+### Test Fixes
+
+The test suite has been updated to be compatible with the new UI changes:
+
+- Updated HTML structure in test setup
+- Fixed utility functions to work properly in test environments
+- Implemented robust error handling for edge cases
+- Addressed circular dependencies between modules
+- Added more robust element visibility checking for tests
+- Fixed mock event handlers for simulated clicks
+
+## Contributing
+
+Contributions are welcome! Please follow these steps:
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Run tests to ensure nothing breaks
+5. Submit a pull request
+
+## License
+
+This project is licensed under the MIT License.
 
 ## How It Works
 
+The Cookie Consent Manager extension works in two complementary modes:
+
 ### Smart Mode
 
-The Smart Mode uses the following strategy to detect and handle cookie banners:
+The Smart Mode uses advanced heuristics to detect and interact with cookie consent dialogs:
 
-1. Focuses on first visits to websites and GET requests (not POST requests)
-2. Looks for elements appearing in the first few seconds of page load
-3. Identifies popups by searching for text containing "cookie" or "privacy" (even in HTML for translated pages)
-4. Prioritizes elements with high z-index values (typically overlays)
-5. Looks for elements with at least 2 buttons (typical for consent dialogs)
-6. Finds buttons with text like "Accept", "Agree", "OK", etc.
-7. Automatically clicks the appropriate button to accept cookies
+1. Detects cookie consent dialogs through content analysis, structure evaluation, and context assessment
+2. Finds the appropriate accept/necessary button based on semantic analysis
+3. Safely interacts with the button to approve cookies based on your preferences
+
+Our Smart Formula avoids special cases or site-specific hardcoding, relying instead on intelligent pattern recognition that works across any website.
 
 ### Cloud Mode
 
-The Cloud Mode uses a multi-tiered approach for maximum effectiveness:
+The Cloud Mode leverages a database of common cookie dialog patterns:
 
-1. First checks site-specific selectors for the current domain
-2. Then tries common selectors that work across many websites
-3. Finally, looks for similar HTML patterns to known consent dialogs
-4. Uses shared patterns to handle identical dialogs across different sites (e.g., Google's common consent dialog)
+1. Uses common selectors and patterns to identify cookie consent elements
+2. Prioritizes selectors based on rating and compliance requirements
+3. Falls back to signature pattern matching for similar but not identical elements
+
+The smart formula is continuously improved and automatically updates as patterns evolve.
 
 ### Dialog Capture & Rating
 
@@ -49,11 +122,29 @@ The extension captures cookie consent dialogs before they're dismissed:
 
 The extension includes several privacy safeguards:
 
-1. Asks for permission before collecting banner data
-2. Redacts email addresses, phone numbers, and other personal data
+1. Essential functionality works without requiring consent
+2. Redacts email addresses, phone numbers, and other personal data only when submitting to the cloud
 3. Removes query parameters from URLs which might contain personal information
 4. Sanitizes form fields and input values
 5. Removes potentially sensitive attributes from HTML before storage
+6. Asks for consent only when users want to contribute ratings to the cloud database
+
+## Data Storage and Persistence
+
+Cookie Consent Manager uses multiple storage strategies to ensure your settings and history persist:
+
+1. **Chrome Storage API**: Primary storage that synchronizes across devices (for settings) and persists locally (for history)
+2. **localStorage Backup**: Dual-storage approach for plugin resilience
+   - Settings and history are automatically backed up every 10 minutes
+   - Data is automatically restored from localStorage if Chrome Storage is unavailable
+   - Ensures persistence across plugin reloads and updates
+
+This redundant storage approach ensures your settings and cookie consent history remain intact even when:
+- The plugin is reloaded from source during development
+- The plugin is updated to a new version
+- Chrome needs to restart
+
+Your data is stored only on your devices and is not sent to any external servers unless you explicitly enable cloud features and provide consent.
 
 ## Future Plans
 
@@ -83,6 +174,18 @@ The extension includes several privacy safeguards:
 
 After installation, the extension will automatically run on websites. You can configure its behaviour by clicking the extension icon in your browser toolbar.
 
+### Default Settings
+
+By default, the extension works with the following settings:
+- **Enabled**: ON - The extension is active
+- **Auto-Accept**: ON - Automatically clicks accept buttons
+- **Smart Mode**: ON - Uses smart detection (no consent required)
+- **Cloud Mode**: OFF - Requires consent to enable
+- **Privacy Mode**: OFF - Requires consent to enable
+- **GDPR Compliance**: ON - Ensures compliance with regulations
+
+Features requiring consent will prompt you for permission when you attempt to enable them.
+
 ### Rating Cookie Dialogs
 
 1. Visit websites with cookie consent dialogs
@@ -95,34 +198,33 @@ After installation, the extension will automatically run on websites. You can co
 
 1. Click the extension icon to open the popup
 2. On the "Settings" tab, use the "Privacy Protection" toggle
-3. When enabled, all personal information is redacted from captured dialogs
+3. When enabled, all personal information is redacted before submitting dialogs to the cloud
 4. This setting is on by default and recommended for all users
 
-## Contributing
+## Code Structure
 
-Contributions are welcome! Please feel free to submit a Pull Request or open an issue to suggest improvements or report bugs. 
+The codebase has been refactored into a modular architecture to improve maintainability and separation of concerns:
 
-## Testing
+- **src/modules/**: Core functionality modules including settings and cloud database 
+- **src/utils/**: Utility functions for finding buttons, interacting with elements, and privacy sanitization
+- **src/handlers/**: Event handlers and business logic for dialog capture and smart detection
+- **src/index.js**: Main entry point that orchestrates all functionality
 
-The extension includes a comprehensive test suite using Jest. We have tests for:
+See [src/README.md](src/README.md) for more details on the code architecture.
 
-- **Unit Tests**: Testing individual functions and components
-- **Integration Tests**: Verifying how different parts of the extension work together
-- **Edge Cases**: Ensuring the extension handles unusual scenarios correctly
-- **Manifest Validation**: Checking the extension's configuration is valid
+### Build System
 
-To run the tests:
+The project uses webpack to bundle the modular code:
 
+```bash
+# Install dependencies
+npm install
+
+# Development mode with hot reloading
+npm run dev
+
+# Production build
+npm run build
 ```
-npm test
-```
 
-When contributing, please ensure all tests pass before submitting a pull request. Add new tests for any new functionality.
-
-Test files are organized under the `tests/` directory:
-- `content.test.js`: Tests for content script functionality
-- `background.test.js`: Tests for background script
-- `popup.test.js`: Tests for the popup interface
-- `integration.test.js`: Cross-component tests
-- `edge-cases.test.js`: Tests for unusual cookie banner scenarios
-- `manifest.test.js`: Validation of the extension configuration 
+The bundled files are output to the `dist/` directory and referenced by the extension's manifest. 

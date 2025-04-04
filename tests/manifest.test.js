@@ -37,12 +37,12 @@ describe('Manifest.json', () => {
 		expect(Array.isArray(contentScript.matches)).toBe(true);
 		expect(contentScript.matches).toContain('<all_urls>');
 		expect(Array.isArray(contentScript.js)).toBe(true);
-		expect(contentScript.js).toContain('content.js');
+		expect(contentScript.js).toContain('dist/content.bundle.js');
 	});
 	
 	test('has background script properly configured', () => {
 		expect(manifestContent.background).toBeDefined();
-		expect(manifestContent.background.service_worker).toBe('background.js');
+		expect(manifestContent.background.service_worker).toBe('dist/background.bundle.js');
 	});
 	
 	test('has action (popup) properly configured', () => {

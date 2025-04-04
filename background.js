@@ -1,27 +1,51 @@
 // Initialize default settings when the extension is installed
 chrome.runtime.onInstalled.addListener(() => {
-	chrome.storage.sync.set({
+	// First check if we have settings in localStorage to restore
+	const savedSettings = localStorage.getItem('ccm_settings');
+	const savedHistory = localStorage.getItem('ccm_history');
+	
+	// Default settings to use if nothing is found
+	const defaultSettings = {
 		enabled: true,
 		autoAccept: true,
 		smartMode: true,
-		cloudMode: true,
-		privacyMode: true,
-		gdprCompliance: true
-	});
-	console.log('Cookie Consent Manager initialized with default settings');
+		cloudMode: false, // Off by default as it requires consent
+		privacyMode: false, // Off by default as it requires consent
+		gdprCompliance: false  // OFF by default - this is a premium feature
+	};
 	
-	// Initialize domain visit tracking storage
-	chrome.storage.local.set({
+	// Initialize with either saved settings or defaults
+	const settings = savedSettings ? JSON.parse(savedSettings) : defaultSettings;
+	
+	// Apply the settings to chrome.storage.sync
+	chrome.storage.sync.set(settings);
+	console.log('Cookie Consent Manager initialized with ' + (savedSettings ? 'saved' : 'default') + ' settings');
+	
+	// Default local storage data
+	const defaultLocalData = {
 		visitedDomains: {},
 		capturedDialogs: [],
 		dialogHistory: [],
 		pendingSubmissions: [],
 		dataCollectionConsent: false,
 		initialPermissionAsked: false
-	});
+	};
+	
+	// Initialize with either saved history or defaults
+	const localData = savedHistory ? JSON.parse(savedHistory) : defaultLocalData;
+	
+	// Apply the local data to chrome.storage.local
+	chrome.storage.local.set(localData);
+	
+	if (savedHistory) {
+		console.log('Restored history with ' + localData.dialogHistory.length + ' entries');
+	}
 
 	// Set up alarm for daily cleanup of old domain records
 	chrome.alarms.create('cleanupVisitedDomains', { periodInMinutes: 1440 }); // 24 hours
+	
+	// Set up alarm for regular backup of settings and history
+	chrome.alarms.create('backupSettingsAndHistory', { periodInMinutes: 10 }); // Every 10 minutes
 });
 
 // Track captured dialogs across tabs
@@ -47,13 +71,33 @@ function cleanupVisitedDomains() {
 		// Save updated domain list
 		chrome.storage.local.set({ visitedDomains: domains });
 		console.log(`Cleaned up ${cleanupCount} old domain records`);
+		
+		// Backup after cleanup
+		backupSettingsAndHistory();
 	});
 }
 
-// Listen for the cleanup alarm
+// Backup settings and history to localStorage
+function backupSettingsAndHistory() {
+	// Get all settings and save to localStorage
+	chrome.storage.sync.get(null, (settings) => {
+		localStorage.setItem('ccm_settings', JSON.stringify(settings));
+	});
+	
+	// Get all local storage data and save to localStorage
+	chrome.storage.local.get(null, (data) => {
+		localStorage.setItem('ccm_history', JSON.stringify(data));
+	});
+	
+	console.log('Settings and history backed up to localStorage: ' + new Date().toISOString());
+}
+
+// Listen for the alarms
 chrome.alarms.onAlarm.addListener((alarm) => {
 	if (alarm.name === 'cleanupVisitedDomains') {
 		cleanupVisitedDomains();
+	} else if (alarm.name === 'backupSettingsAndHistory') {
+		backupSettingsAndHistory();
 	}
 });
 
@@ -72,6 +116,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 			});
 		});
 		updateBadge();
+		
+		// Backup settings immediately when they change
+		backupSettingsAndHistory();
+		
 		sendResponse({ success: true });
 	} else if (message.action === 'dialogCaptured') {
 		// Make sure we have a dialog object and not just a count
@@ -117,7 +165,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 		return true;
 	} else if (message.action === 'submitDialogRating') {
 		// Handle dialog rating
-		const { dialogId, rating, isGoodMatch } = message.data;
+		const { dialogId, rating, isGoodMatch, sanitizedDialog } = message.data;
+		
+		// If we have sanitized data from content script, use it for cloud submission
+		if (sanitizedDialog) {
+			// Submit sanitized data to cloud
+			submitToCloud({
+				url: sanitizedDialog.url, // Already sanitized
+				domain: sanitizedDialog.domain,
+				selector: sanitizedDialog.selector,
+				buttonType: sanitizedDialog.buttonType,
+				buttonText: sanitizedDialog.buttonText,
+				html: sanitizedDialog.html, // Already sanitized
+				capturedAt: sanitizedDialog.capturedAt,
+				rating,
+				isGoodMatch,
+				region: sanitizedDialog.region
+			});
+		}
+		
 		markDialogAsReviewed(dialogId);
 		sendResponse({ success: true });
 		return true;
@@ -177,56 +243,57 @@ function checkDomainVisited(domain, sendResponse) {
 
 // Combined function to store dialogs in history (replacing storeCapturedDialog and addDialogToHistory)
 function storeDialogInHistory(dialog, tabId) {
-	chrome.storage.local.get(['dialogHistory', 'dataCollectionConsent'], (result) => {
+	chrome.storage.local.get(['dialogHistory'], (result) => {
 		const history = result.dialogHistory || [];
-		const consent = result.dataCollectionConsent || false;
 		
-		// Only store if consent is given or if privacy mode is on
-		if (consent || dialog.privacyMode) {
-			// Check for duplicates (same domain, button type, and captured within 2 seconds)
-			const now = Date.now();
-			const threshold = 2000; // 2 seconds threshold for duplicates
-			const isDuplicate = history.some(existingDialog => {
-				// Compare domain and button type
-				if (existingDialog.domain === dialog.domain && 
-					existingDialog.buttonType === dialog.buttonType) {
-					
-					// Compare capture times
-					const capturedAt = new Date(existingDialog.capturedAt).getTime();
-					return Math.abs(now - capturedAt) < threshold;
-				}
-				return false;
+		// No longer checking for consent as local storage is essential for functionality
+		
+		// Check for duplicates (same domain, button type, and captured within 2 seconds)
+		const now = Date.now();
+		const threshold = 2000; // 2 seconds threshold for duplicates
+		const isDuplicate = history.some(existingDialog => {
+			// Compare domain and button type
+			if (existingDialog.domain === dialog.domain && 
+				existingDialog.buttonType === dialog.buttonType) {
+				
+				// Compare capture times
+				const capturedAt = new Date(existingDialog.capturedAt).getTime();
+				return Math.abs(now - capturedAt) < threshold;
+			}
+			return false;
+		});
+		
+		// Only add if not a duplicate
+		if (!isDuplicate) {
+			// Add the dialog to the history
+			history.push({
+				...dialog,
+				id: generateId(),
+				capturedAt: now,
+				reviewed: false,
+				needsReview: true
 			});
 			
-			// Only add if not a duplicate
-			if (!isDuplicate) {
-				// Add the dialog to the history
-				history.push({
-					...dialog,
-					id: generateId(),
-					capturedAt: now,
-					reviewed: false,
-					needsReview: true
-				});
-				
-				// Limit to 100 history entries
-				while (history.length > 100) {
-					history.shift();
-				}
-				
-				// Save updated history
-				chrome.storage.local.set({ dialogHistory: history }, () => {
-					// Update badge
-					updateBadge();
-					
-					// Notify tab if provided
-					if (tabId) {
-						chrome.tabs.sendMessage(tabId, { action: 'dialogStored' });
-					}
-				});
-			} else {
-				console.log('Cookie Consent Manager: Skipped duplicate dialog capture');
+			// Limit to 100 history entries
+			while (history.length > 100) {
+				history.shift();
 			}
+			
+			// Save updated history
+			chrome.storage.local.set({ dialogHistory: history }, () => {
+				// Update badge
+				updateBadge();
+				
+				// Backup the updated history
+				backupSettingsAndHistory();
+				
+				// Notify tab if provided
+				if (tabId) {
+					chrome.tabs.sendMessage(tabId, { action: 'dialogStored' });
+				}
+			});
+		} else {
+			console.log('Cookie Consent Manager: Skipped duplicate dialog capture');
 		}
 	});
 }
@@ -241,6 +308,8 @@ function getDialogHistory(sendResponse) {
 // Clear dialog history
 function clearDialogHistory(sendResponse) {
 	chrome.storage.local.set({ dialogHistory: [] }, () => {
+		// Backup the cleared history
+		backupSettingsAndHistory();
 		sendResponse({ success: true });
 	});
 }
@@ -268,6 +337,10 @@ function markDialogAsReviewed(dialogId, sendResponse) {
 			capturedDialogs: updatedDialogs 
 		}, () => {
 			updateBadge();
+			
+			// Backup the updated history
+			backupSettingsAndHistory();
+			
 			if (sendResponse) sendResponse({ success: true });
 		});
 	});
@@ -329,6 +402,8 @@ function getDataCollectionConsent(sendResponse) {
 // Set data collection consent status
 function setDataCollectionConsent(consent, sendResponse) {
 	chrome.storage.local.set({ dataCollectionConsent: consent }, () => {
+		// Backup the updated consent setting
+		backupSettingsAndHistory();
 		sendResponse({ success: true });
 	});
 }
@@ -422,6 +497,8 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 		cleanupVisitedDomains();
 	} else if (alarm.name === 'cleanupCapturedDialogs') {
 		cleanupCapturedDialogs();
+	} else if (alarm.name === 'backupSettingsAndHistory') {
+		backupSettingsAndHistory();
 	}
 });
 
