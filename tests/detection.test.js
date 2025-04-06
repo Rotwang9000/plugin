@@ -2,8 +2,11 @@
  * @jest-environment jsdom
  */
 
+// Import Jest globals
+import { jest, describe, beforeEach, test, expect } from '@jest/globals';
+
 // Import the functions from the detection module
-const { 
+import { 
 	detectCookieConsent, 
 	getCookieButtons, 
 	analysePage, 
@@ -11,7 +14,7 @@ const {
 	findCookieConsentDialog,
 	determineCookieType,
 	hasIframe
-} = require('../src/modules/detection.js');
+} from '../src/modules/detection.js';
 
 // Mock dependencies
 jest.mock('../src/modules/utils.js', () => ({

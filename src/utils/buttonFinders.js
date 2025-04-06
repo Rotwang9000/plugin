@@ -215,7 +215,7 @@ function findAcceptButton(container) {
 			// Skip if it's a settings, preferences or "more info" button
 			if (buttonText.includes('settings') || buttonText.includes('preferences') || 
 				buttonText.includes('customize') || buttonText.includes('customise') || 
-				buttonText.includes('manage') || buttonText.includes('more about')) {
+				buttonText.includes('manage') || buttonText.includes('options') || buttonText.includes('more about')) {
 				continue;
 			}
 			return element;
@@ -240,7 +240,7 @@ function findAcceptButton(container) {
 			// Skip if it's settings or preferences
 			if (text.includes('settings') || text.includes('preferences') || 
 				text.includes('customize') || text.includes('customise') || 
-				text.includes('manage') || text.includes('more about')) {
+				text.includes('manage') || text.includes('options') || text.includes('more about')) {
 				continue;
 			}
 			return button;
@@ -263,7 +263,7 @@ function findAcceptButton(container) {
 		
 		if (buttonText.includes('settings') || buttonText.includes('preferences') || 
 			buttonText.includes('customize') || buttonText.includes('customise') || 
-			buttonText.includes('manage') || buttonText.includes('more about')) {
+			buttonText.includes('manage') || buttonText.includes('options') || buttonText.includes('more about')) {
 			continue;
 		}
 		return button;
@@ -304,7 +304,7 @@ function findAcceptButton(container) {
 			// Skip if it's settings or preferences
 			if (text.includes('settings') || text.includes('preferences') || 
 				text.includes('customize') || text.includes('customise') || 
-				text.includes('manage') || text.includes('more about')) {
+				text.includes('manage') || text.includes('options') || text.includes('more about')) {
 				continue;
 			}
 			
@@ -362,7 +362,7 @@ function findAcceptButton(container) {
 			// Skip if it contains "settings", "preferences", "customize" or "more about"
 			if (text.includes('settings') || text.includes('preferences') || 
 				text.includes('customize') || text.includes('customise') || 
-				text.includes('manage') || text.includes('more about')) {
+				text.includes('manage') || text.includes('options') || text.includes('more about')) {
 				continue;
 			}
 			return element;
@@ -387,7 +387,7 @@ function findAcceptButton(container) {
 			// Skip if it contains "settings", etc.
 			if (text.includes('settings') || text.includes('preferences') || 
 				text.includes('customize') || text.includes('customise') || 
-				text.includes('manage')) {
+				text.includes('manage') || text.includes('options')) {
 				continue;
 			}
 			return anchor;
@@ -406,6 +406,42 @@ function findAcceptButton(container) {
 			classes.includes('btn-primary') ||
 			classes.includes('continue-button')) {
 			return element;
+		}
+	}
+	
+	// Check for Twitter-style React Native components with css- and r- classes
+	const possibleTwitterButtons = container.querySelectorAll('[role="button"], button');
+	for (const button of possibleTwitterButtons) {
+		// Check if this is a Twitter-style component with css- and r- classes
+		if (button.className && typeof button.className === 'string') {
+			const classes = button.className.split(' ');
+			const hasTwitterClasses = classes.some(cls => cls.startsWith('css-') || cls.startsWith('r-'));
+			
+			if (hasTwitterClasses) {
+				// Look for dark-themed buttons (common for accept buttons) 
+				// Twitter often uses rgba(0, 0, 0, 0.75) or similar for accept buttons
+				const style = window.getComputedStyle(button);
+				const backgroundColor = style.backgroundColor || '';
+				const color = style.color || '';
+				
+				// Check for dark background (likely primary action)
+				if (backgroundColor.includes('rgba(0, 0, 0') || 
+					backgroundColor.includes('rgb(0, 0, 0') ||
+					backgroundColor.includes('#000') ||
+					color === 'white' || color === '#fff' || color === '#ffffff') {
+					
+					// If this is a dark-themed button, it's likely the accept button
+					return button;
+				}
+				
+				// Check for any button position at right/end of dialog (common for accept)
+				const parentStyle = window.getComputedStyle(button.parentElement);
+				if (parentStyle.display.includes('flex') && 
+					(parentStyle.justifyContent.includes('end') || 
+					 parentStyle.justifyContent.includes('right'))) {
+					return button;
+				}
+			}
 		}
 	}
 	

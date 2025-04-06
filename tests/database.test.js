@@ -2,14 +2,17 @@
  * @jest-environment node
  */
 
+// Import Jest globals
+import { jest, describe, beforeEach, test, expect } from '@jest/globals';
+
 // Import the functions from the database module
-const { 
+import { 
 	saveWebsiteData, 
 	getWebsiteData, 
 	isKnownWebsite,
 	updateStatistics,
 	getStatistics
-} = require('../src/modules/database.js');
+} from '../src/modules/database.js';
 
 // Mock dependencies
 jest.mock('../src/modules/utils.js', () => ({

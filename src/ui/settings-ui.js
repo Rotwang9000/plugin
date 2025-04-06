@@ -1,0 +1,203 @@
+/**
+ * Settings UI functions for managing user preferences
+ */
+
+import { createElement, toggleClass, queryAndProcess } from '../modules/dom-utils.js';
+import { getSettings, saveSettings, DEFAULT_SETTINGS } from '../modules/storage.js';
+
+/**
+ * Load settings from storage
+ * @param {Function} callback - Callback with loaded settings
+ * @returns {Promise} Promise that resolves with settings
+ */
+export function loadSettings(callback) {
+	return new Promise((resolve) => {
+		getSettings((settings) => {
+			if (typeof callback === 'function') {
+				callback(settings);
+			}
+			resolve(settings);
+		});
+	});
+}
+
+/**
+ * Update UI based on current settings
+ * @param {Object} settings - Settings object
+ */
+export function updateUIFromSettings(settings) {
+	// Update checkboxes
+	queryAndProcess('input[type="checkbox"][data-setting]', checkbox => {
+		const settingName = checkbox.dataset.setting;
+		checkbox.checked = settings[settingName] === true;
+	});
+	
+	// Direct update of checkboxes by ID for backward compatibility
+	const settingIds = ['enabled', 'autoAccept', 'smartMode', 'cloudMode', 'privacyMode', 'gdprCompliance', 'devMode'];
+	settingIds.forEach(id => {
+		const element = document.getElementById(id);
+		if (element) {
+			element.checked = settings[id] === true;
+		}
+	});
+	
+	// Update UI for dev mode
+	updateDevModeUI(settings.devMode);
+	
+	// Update tab display based on dev mode
+	toggleDevModeTabs(settings.devMode);
+}
+
+/**
+ * Update Dev Mode UI elements
+ * @param {boolean} isDevMode - Whether dev mode is enabled
+ */
+export function updateDevModeUI(isDevMode) {
+	// Update dev mode specific elements
+	queryAndProcess('.dev-mode-only', element => {
+		toggleClass(element, 'hidden', !isDevMode);
+	});
+	
+	// Update non-dev mode elements
+	queryAndProcess('.non-dev-mode-only', element => {
+		toggleClass(element, 'hidden', isDevMode);
+	});
+	
+	// Update body class
+	document.body.classList.toggle('simple-mode', !isDevMode);
+	
+	// Update dev mode tabs
+	queryAndProcess('.tab[data-tab="analyze"]', element => {
+		toggleClass(element, 'dev-mode-hidden', !isDevMode);
+	});
+}
+
+/**
+ * Toggle tab visibility based on dev mode
+ * @param {boolean} isDevMode - Whether dev mode is enabled
+ */
+export function toggleDevModeTabs(isDevMode) {
+	// Hide or show tabs based on dev mode
+	queryAndProcess('.tab[data-tab="analyze"]', tab => {
+		toggleClass(tab, 'dev-mode-hidden', !isDevMode);
+	});
+	
+	// If dev mode is disabled and analyze tab is active, switch to dashboard
+	if (!isDevMode && document.querySelector('.tab-content[id="analyze"].active')) {
+		showTab('dashboard');
+	}
+}
+
+/**
+ * Show a specific tab
+ * @param {string} tabName - Name of tab to show
+ */
+export function showTab(tabName) {
+	// Hide all tabs
+	queryAndProcess('.tab-content', tab => {
+		tab.classList.remove('active');
+	});
+	
+	// Hide all tab buttons
+	queryAndProcess('.tab', tab => {
+		tab.classList.remove('active');
+	});
+	
+	// Show selected tab
+	const selectedTab = document.querySelector(`.tab-content[id="${tabName}"]`);
+	if (selectedTab) {
+		selectedTab.classList.add('active');
+	}
+	
+	// Highlight selected tab button
+	const selectedTabButton = document.querySelector(`.tab[data-tab="${tabName}"]`);
+	if (selectedTabButton) {
+		selectedTabButton.classList.add('active');
+	}
+	
+	// Special handling for tabs
+	if (tabName === 'history') {
+		// Refresh history when showing history tab
+		const historyEvent = new CustomEvent('history-tab-shown');
+		document.dispatchEvent(historyEvent);
+	}
+}
+
+/**
+ * Initialize tab navigation
+ */
+export function initTabNavigation() {
+	// Set up tab navigation
+	queryAndProcess('.tab', tab => {
+		tab.addEventListener('click', () => {
+			const tabName = tab.dataset.tab;
+			showTab(tabName);
+		});
+	});
+	
+	// Start on dashboard tab
+	showTab('dashboard');
+}
+
+/**
+ * Initialize settings controls
+ * @param {Object} settings - Current settings
+ * @param {Function} onSettingChange - Callback when settings change
+ */
+export function initSettingsControls(settings, onSettingChange) {
+	// Set up settings checkboxes
+	queryAndProcess('input[type="checkbox"][data-setting]', checkbox => {
+		// Set initial state
+		const settingName = checkbox.dataset.setting;
+		checkbox.checked = settings[settingName] === true;
+		
+		// Add change handler
+		checkbox.addEventListener('change', () => {
+			// Update setting
+			settings[settingName] = checkbox.checked;
+			
+			// Handle special case for dev mode
+			if (settingName === 'devMode') {
+				updateDevModeUI(checkbox.checked);
+			}
+			
+			// Save settings
+			saveSettings(settings, () => {
+				if (typeof onSettingChange === 'function') {
+					onSettingChange(settings);
+				}
+			});
+		});
+	});
+	
+	// For direct ID-based controls (backward compatibility)
+	const settingIds = ['enabled', 'autoAccept', 'smartMode', 'cloudMode', 'privacyMode', 'gdprCompliance', 'devMode'];
+	settingIds.forEach(id => {
+		const element = document.getElementById(id);
+		if (element) {
+			// Set initial state
+			element.checked = settings[id] === true;
+			
+			// Add change handler if not already set
+			if (!element.hasChangeListener) {
+				element.addEventListener('change', () => {
+					// Update setting
+					settings[id] = element.checked;
+					
+					// Handle special case for dev mode
+					if (id === 'devMode') {
+						updateDevModeUI(element.checked);
+					}
+					
+					// Save settings
+					saveSettings(settings, () => {
+						if (typeof onSettingChange === 'function') {
+							onSettingChange(settings);
+						}
+					});
+				});
+				element.hasChangeListener = true;
+			}
+		}
+	});
+} 

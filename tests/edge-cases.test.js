@@ -52,7 +52,9 @@ function findAcceptButton(container) {
 		if (text.includes('accept') || text.includes('agree') || text.includes('ok') || 
 			text.includes('yes') || text.includes('got it') || text.includes('allow')) {
 			// Skip if it contains settings-related terms
-			if (text.includes('settings') || text.includes('preferences') || text.includes('customize')) {
+			if (text.includes('settings') || text.includes('preferences') || 
+			    text.includes('customize') || text.includes('customise') || 
+			    text.includes('manage') || text.includes('options')) {
 				continue;
 			}
 			return button;

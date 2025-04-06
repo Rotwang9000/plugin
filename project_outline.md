@@ -342,3 +342,217 @@ This new approach provides more accurate data collection and better insights int
 - Extended support for more languages
 - Dashboard for viewing consent statistics
 - Advanced filtering in history view 
+
+## Server Component
+
+The Cookie Consent Manager now includes a server component that handles review submissions and pattern management. The server component enables the following critical functionality:
+
+### Review Submission Processing
+
+1. **API Endpoints for Review Collection**:
+   - Secure endpoints for receiving cookie dialog submissions
+   - Data validation and sanitization before storage
+   - Management of submission lifecycle (pending → approved/rejected)
+
+2. **Pattern Database Management**:
+   - Storage of approved patterns with metadata
+   - Automatic categorization by domain and selector type
+   - Usage tracking for patterns to measure effectiveness
+
+3. **Admin Interface**:
+   - Web-based admin panel for reviewing submissions
+   - Approval workflow for adding new patterns to the database
+   - Monitoring of pattern usage and effectiveness
+
+### Server Architecture
+
+The server is built with the following components:
+
+1. **Express.js Backend**:
+   - RESTful API for submissions and pattern retrieval
+   - Middleware for security, logging, and error handling
+   - Static file serving for admin interface
+
+2. **In-Memory Database** (to be replaced with persistent storage):
+   - Module-based architecture for easy database replacement
+   - CRUD operations for reviews and patterns
+   - Query filtering capabilities
+
+3. **Admin Panel**:
+   - Browser-based interface for review management
+   - Tabbed interface for pending reviews, approved reviews, and patterns
+   - Preview capability for HTML content
+
+### Data Flow
+
+1. **Extension to Server**:
+   - User rates a captured dialog in the extension
+   - Extension sanitizes and sends the data to the server
+   - Server validates, further sanitizes, and stores the submission
+
+2. **Admin Review Process**:
+   - Admin views pending submissions in the admin panel
+   - Reviews the HTML content and selector information
+   - Approves or rejects the submission
+
+3. **Pattern Creation**:
+   - Approved submissions are automatically converted to patterns
+   - Patterns are made available to all users via the API
+   - Extension queries the API to get updated patterns
+
+### Security Considerations
+
+The server implementation includes several security measures:
+
+1. **Data Sanitization**:
+   - Removes email addresses, phone numbers, and personal identifiers
+   - Strips query parameters from URLs
+   - Removes potentially sensitive HTML attributes
+
+2. **Input Validation**:
+   - Validates all incoming data against expected schemas
+   - Rejects malformed or potentially harmful submissions
+   - Size limits on HTML content to prevent abuse
+
+3. **Future Authentication** (planned for production):
+   - Secure admin login with proper authentication
+   - API keys for extension communication
+   - Rate limiting to prevent abuse
+
+### Development and Testing
+
+The server includes a comprehensive test suite:
+
+1. **Database Module Tests**:
+   - Validation of CRUD operations
+   - Pattern management functionality
+   - Query filtering capabilities
+
+2. **Utility Function Tests**:
+   - Data sanitization effectiveness
+   - URL processing functions
+   - Validation logic
+
+3. **API Endpoint Tests** (to be implemented):
+   - Request validation and error handling
+   - Response format and content
+   - Edge case handling 
+
+## Refactoring
+
+We've begun a major refactoring effort to improve code organization and maintainability. The main goals are:
+
+1. Break down large monolithic files (popup.js, content.js) into smaller, focused modules
+2. Remove duplicated code
+3. Improve code reuse and maintainability
+4. Make testing easier
+
+### New Module Structure
+
+```
+src/
+├── modules/      # Core functionality
+│   ├── dom-utils.js
+│   ├── html-utils.js
+│   └── storage.js
+├── ui/           # UI components
+│   ├── dialog-display.js
+│   ├── history-ui.js
+│   ├── settings-ui.js
+│   └── stats-ui.js
+├── detection/    # Detection logic
+│   ├── smart-detection.js
+│   ├── cloud-detection.js
+│   └── button-recognition.js
+├── api/          # API integrations
+│   ├── messaging.js
+│   └── cloud-api.js
+└── utils/        # Utilities
+```
+
+### Current Progress
+
+- ✅ Created utility modules for HTML and DOM operations
+- ✅ Created storage module for consistent data management
+- ✅ Implemented UI modules for different parts of the interface
+- ✅ Separated detection logic into focused modules
+- ✅ Created API modules for messaging and cloud interactions
+
+### Next Steps
+
+- Update entry point files (popup.js, content.js, background.js) to use the new modular structure
+- Write tests for the new modules
+- Continue refactoring additional functionality into modules
+- Remove duplicate code from the codebase
+
+## Refactoring Initiative
+
+To improve maintainability and address technical debt, we're restructuring the codebase into a modular architecture:
+
+### Current Status
+
+- Created initial module structure in src/modules/
+- Developed utility modules for HTML and DOM manipulation
+- Added storage abstraction layer
+- Documented refactoring needs in the README.md
+- Successfully refactored popup.js to use the new modular structure
+- Moved all UI functionality into specialized modules
+- Implemented proper separation of concerns in the UI layer
+
+### Module Organization
+
+1. **utils/** - Utility functions
+   - html-utils.js - HTML manipulation and formatting
+   - dom-utils.js - DOM operations and element creation
+   - privacy-utils.js - Data sanitization and privacy
+
+2. **api/** - Backend operations
+   - storage.js - Chrome storage abstraction
+   - cloud-api.js - Cloud service interactions
+   - messaging.js - Inter-script communication
+
+3. **ui/** - User interface components
+   - dialog-display.js - Dialog rendering
+   - settings-ui.js - Settings interface
+   - history-ui.js - History display and management
+   - stats-ui.js - Statistics rendering
+
+4. **detection/** - Cookie banner detection
+   - smart-detection.js - Smart mode detection
+   - button-recognition.js - Button identification
+   - cloud-detection.js - Cloud pattern matching
+
+### Benefits
+
+- Improved code organization and reduced file sizes
+- Better testability with isolated components
+- Elimination of duplicated code
+- Clearer separation of concerns
+
+### Next Steps
+
+- Continue refactoring content.js and background.js
+- Add unit tests for all modules
+- Update documentation to reflect new structure
+
+A complete refactoring plan is available in refactoring-plan.md.
+
+### Refactoring Progress
+
+### Entry Points Refactored
+- ✅ popup.js - Completely refactored to use the module system
+- ✅ content.js - Refactored to use the modular code structure
+- ✅ background.js - Refactored to use the modular approach
+
+### Next Steps
+
+1. ✅ Update main entry points using modular approach
+
+2. Write tests for the new modules:
+   - ✅ Basic tests for popup.js refactoring
+   - ✅ Basic tests for content.js refactoring
+   - ✅ Basic tests for background.js refactoring
+   - ⬜ Comprehensive tests for individual modules
+   - ⬜ Integration tests for module interactions
+
+3. Verify all functionality works as expected 

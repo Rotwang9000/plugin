@@ -2,14 +2,17 @@
  * @jest-environment jsdom
  */
 
-// Import the functions from the action module
-const { 
+// Import Jest globals
+import { jest, describe, beforeEach, test, expect } from '@jest/globals';
+
+// Import the functions from the action module (using ES module syntax)
+import { 
 	acceptCookies,
 	rejectCookies,
 	handleCookieConsent,
 	simulateClick,
 	handleDialogAutomatically
-} = require('../src/modules/action.js');
+} from '../src/modules/action.js';
 
 // Mock dependencies
 jest.mock('../src/modules/utils.js', () => ({
@@ -94,23 +97,24 @@ describe('Action Module', () => {
 			const acceptButton = document.getElementById('acceptBtn');
 			acceptButton.dispatchEvent = jest.fn();
 			
-			const { saveWebsiteData, updateStatistics } = require('../src/modules/database.js');
-			
-			acceptCookies(acceptButton, () => {
-				expect(acceptButton.dispatchEvent).toHaveBeenCalled();
-				expect(saveWebsiteData).toHaveBeenCalledWith(
-					'example.com',
-					expect.objectContaining({
-						acceptSelector: '#acceptBtn'
-					}),
-					expect.any(Function)
-				);
-				expect(updateStatistics).toHaveBeenCalledWith(
-					'example.com',
-					true,
-					expect.any(Function)
-				);
-				done();
+			// Import mocked modules using ES module syntax
+			import('../src/modules/database.js').then(({ saveWebsiteData, updateStatistics }) => {
+				acceptCookies(acceptButton, () => {
+					expect(acceptButton.dispatchEvent).toHaveBeenCalled();
+					expect(saveWebsiteData).toHaveBeenCalledWith(
+						'example.com',
+						expect.objectContaining({
+							acceptSelector: '#acceptBtn'
+						}),
+						expect.any(Function)
+					);
+					expect(updateStatistics).toHaveBeenCalledWith(
+						'example.com',
+						true,
+						expect.any(Function)
+					);
+					done();
+				});
 			});
 		});
 		
@@ -125,18 +129,19 @@ describe('Action Module', () => {
 			const acceptButton = document.querySelector('.accept-btn');
 			acceptButton.dispatchEvent = jest.fn();
 			
-			const { saveWebsiteData } = require('../src/modules/database.js');
-			
-			acceptCookies(acceptButton, () => {
-				expect(acceptButton.dispatchEvent).toHaveBeenCalled();
-				expect(saveWebsiteData).toHaveBeenCalledWith(
-					'example.com',
-					expect.objectContaining({
-						acceptSelector: '.accept-btn'
-					}),
-					expect.any(Function)
-				);
-				done();
+			// Import mocked modules using ES module syntax
+			import('../src/modules/database.js').then(({ saveWebsiteData }) => {
+				acceptCookies(acceptButton, () => {
+					expect(acceptButton.dispatchEvent).toHaveBeenCalled();
+					expect(saveWebsiteData).toHaveBeenCalledWith(
+						'example.com',
+						expect.objectContaining({
+							acceptSelector: '.accept-btn'
+						}),
+						expect.any(Function)
+					);
+					done();
+				});
 			});
 		});
 		
@@ -161,23 +166,24 @@ describe('Action Module', () => {
 			const rejectButton = document.getElementById('rejectBtn');
 			rejectButton.dispatchEvent = jest.fn();
 			
-			const { saveWebsiteData, updateStatistics } = require('../src/modules/database.js');
-			
-			rejectCookies(rejectButton, () => {
-				expect(rejectButton.dispatchEvent).toHaveBeenCalled();
-				expect(saveWebsiteData).toHaveBeenCalledWith(
-					'example.com',
-					expect.objectContaining({
-						rejectSelector: '#rejectBtn'
-					}),
-					expect.any(Function)
-				);
-				expect(updateStatistics).toHaveBeenCalledWith(
-					'example.com',
-					false,
-					expect.any(Function)
-				);
-				done();
+			// Import mocked modules using ES module syntax
+			import('../src/modules/database.js').then(({ saveWebsiteData, updateStatistics }) => {
+				rejectCookies(rejectButton, () => {
+					expect(rejectButton.dispatchEvent).toHaveBeenCalled();
+					expect(saveWebsiteData).toHaveBeenCalledWith(
+						'example.com',
+						expect.objectContaining({
+							rejectSelector: '#rejectBtn'
+						}),
+						expect.any(Function)
+					);
+					expect(updateStatistics).toHaveBeenCalledWith(
+						'example.com',
+						false,
+						expect.any(Function)
+					);
+					done();
+				});
 			});
 		});
 		
@@ -192,18 +198,19 @@ describe('Action Module', () => {
 			const rejectButton = document.querySelector('.reject-btn');
 			rejectButton.dispatchEvent = jest.fn();
 			
-			const { saveWebsiteData } = require('../src/modules/database.js');
-			
-			rejectCookies(rejectButton, () => {
-				expect(rejectButton.dispatchEvent).toHaveBeenCalled();
-				expect(saveWebsiteData).toHaveBeenCalledWith(
-					'example.com',
-					expect.objectContaining({
-						rejectSelector: '.reject-btn'
-					}),
-					expect.any(Function)
-				);
-				done();
+			// Import mocked modules using ES module syntax
+			import('../src/modules/database.js').then(({ saveWebsiteData }) => {
+				rejectCookies(rejectButton, () => {
+					expect(rejectButton.dispatchEvent).toHaveBeenCalled();
+					expect(saveWebsiteData).toHaveBeenCalledWith(
+						'example.com',
+						expect.objectContaining({
+							rejectSelector: '.reject-btn'
+						}),
+						expect.any(Function)
+					);
+					done();
+				});
 			});
 		});
 		
@@ -232,15 +239,16 @@ describe('Action Module', () => {
 			acceptButton.dispatchEvent = jest.fn();
 			rejectButton.dispatchEvent = jest.fn();
 			
-			// Mock settings
-			const settings = require('../src/modules/settings.js');
-			settings.settings.autoAccept = true;
-			settings.settings.privacyMode = false;
-			
-			handleCookieConsent(acceptButton, rejectButton, () => {
-				expect(acceptButton.dispatchEvent).toHaveBeenCalled();
-				expect(rejectButton.dispatchEvent).not.toHaveBeenCalled();
-				done();
+			// Import mocked modules using ES module syntax
+			import('../src/modules/settings.js').then((settings) => {
+				settings.settings.autoAccept = true;
+				settings.settings.privacyMode = false;
+				
+				handleCookieConsent(acceptButton, rejectButton, () => {
+					expect(acceptButton.dispatchEvent).toHaveBeenCalled();
+					expect(rejectButton.dispatchEvent).not.toHaveBeenCalled();
+					done();
+				});
 			});
 		});
 		
@@ -259,15 +267,16 @@ describe('Action Module', () => {
 			acceptButton.dispatchEvent = jest.fn();
 			rejectButton.dispatchEvent = jest.fn();
 			
-			// Mock settings
-			const settings = require('../src/modules/settings.js');
-			settings.settings.autoAccept = true;
-			settings.settings.privacyMode = true;
-			
-			handleCookieConsent(acceptButton, rejectButton, () => {
-				expect(acceptButton.dispatchEvent).not.toHaveBeenCalled();
-				expect(rejectButton.dispatchEvent).toHaveBeenCalled();
-				done();
+			// Import mocked modules using ES module syntax
+			import('../src/modules/settings.js').then((settings) => {
+				settings.settings.autoAccept = true;
+				settings.settings.privacyMode = true;
+				
+				handleCookieConsent(acceptButton, rejectButton, () => {
+					expect(acceptButton.dispatchEvent).not.toHaveBeenCalled();
+					expect(rejectButton.dispatchEvent).toHaveBeenCalled();
+					done();
+				});
 			});
 		});
 		
@@ -286,15 +295,16 @@ describe('Action Module', () => {
 			acceptButton.dispatchEvent = jest.fn();
 			rejectButton.dispatchEvent = jest.fn();
 			
-			// Mock settings
-			const settings = require('../src/modules/settings.js');
-			settings.settings.autoAccept = false;
-			settings.settings.privacyMode = false;
-			
-			handleCookieConsent(acceptButton, rejectButton, () => {
-				expect(acceptButton.dispatchEvent).not.toHaveBeenCalled();
-				expect(rejectButton.dispatchEvent).toHaveBeenCalled();
-				done();
+			// Import mocked modules using ES module syntax
+			import('../src/modules/settings.js').then((settings) => {
+				settings.settings.autoAccept = false;
+				settings.settings.privacyMode = false;
+				
+				handleCookieConsent(acceptButton, rejectButton, () => {
+					expect(acceptButton.dispatchEvent).not.toHaveBeenCalled();
+					expect(rejectButton.dispatchEvent).toHaveBeenCalled();
+					done();
+				});
 			});
 		});
 		
@@ -309,15 +319,16 @@ describe('Action Module', () => {
 			const acceptButton = document.getElementById('acceptBtn');
 			acceptButton.dispatchEvent = jest.fn();
 			
-			// Mock settings to prefer rejection
-			const settings = require('../src/modules/settings.js');
-			settings.settings.autoAccept = false;
-			settings.settings.privacyMode = true;
-			
-			// Even with settings set to reject, should accept if no reject button
-			handleCookieConsent(acceptButton, null, () => {
-				expect(acceptButton.dispatchEvent).toHaveBeenCalled();
-				done();
+			// Import mocked modules using ES module syntax
+			import('../src/modules/settings.js').then((settings) => {
+				settings.settings.autoAccept = false;
+				settings.settings.privacyMode = true;
+				
+				// Even with settings set to reject, should accept if no reject button
+				handleCookieConsent(acceptButton, null, () => {
+					expect(acceptButton.dispatchEvent).toHaveBeenCalled();
+					done();
+				});
 			});
 		});
 	});
@@ -341,41 +352,46 @@ describe('Action Module', () => {
 			acceptButton.dispatchEvent = jest.fn();
 			rejectButton.dispatchEvent = jest.fn();
 			
-			// Force privacy mode to be true to test reject button clicking
-			const settings = require('../src/modules/settings.js');
-			settings.settings.privacyMode = true;
-			settings.settings.autoAccept = false;
-			
-			// Override the simulateClick function for this test
-			const action = require('../src/modules/action.js');
-			const originalSimulateClick = action.simulateClick;
-			
-			action.simulateClick = (element) => {
-				if (element === acceptButton) {
-					acceptButton.dispatchEvent();
-				} else if (element === rejectButton) {
-					rejectButton.dispatchEvent();
-				}
-			};
-			
-			handleDialogAutomatically(cookieDialog, () => {
-				// In privacy mode, the reject button should be clicked
-				expect(rejectButton.dispatchEvent).toHaveBeenCalled();
-				expect(acceptButton.dispatchEvent).not.toHaveBeenCalled();
+			// Import mocked modules using ES module syntax
+			Promise.all([
+				import('../src/modules/settings.js'),
+				import('../src/modules/action.js')
+			]).then(([settings, action]) => {
+				// Force privacy mode to be true to test reject button clicking
+				settings.settings.privacyMode = true;
+				settings.settings.autoAccept = false;
 				
-				// Restore the original function
-				action.simulateClick = originalSimulateClick;
-				done();
+				// Override the simulateClick function for this test
+				const originalSimulateClick = action.simulateClick;
+				
+				action.simulateClick = (element) => {
+					if (element === acceptButton) {
+						acceptButton.dispatchEvent();
+					} else if (element === rejectButton) {
+						rejectButton.dispatchEvent();
+					}
+				};
+				
+				handleDialogAutomatically(cookieDialog, () => {
+					// In privacy mode, the reject button should be clicked
+					expect(rejectButton.dispatchEvent).toHaveBeenCalled();
+					expect(acceptButton.dispatchEvent).not.toHaveBeenCalled();
+					
+					// Restore the original function
+					action.simulateClick = originalSimulateClick;
+					done();
+				});
 			});
 		});
 		
 		test('does nothing when dialog is null', (done) => {
-			const { saveWebsiteData, updateStatistics } = require('../src/modules/database.js');
-			
-			handleDialogAutomatically(null, () => {
-				expect(saveWebsiteData).not.toHaveBeenCalled();
-				expect(updateStatistics).not.toHaveBeenCalled();
-				done();
+			// Import mocked modules using ES module syntax
+			import('../src/modules/database.js').then(({ saveWebsiteData, updateStatistics }) => {
+				handleDialogAutomatically(null, () => {
+					expect(saveWebsiteData).not.toHaveBeenCalled();
+					expect(updateStatistics).not.toHaveBeenCalled();
+					done();
+				});
 			});
 		});
 		
@@ -389,12 +405,13 @@ describe('Action Module', () => {
 			
 			const cookieDialog = document.getElementById('cookieBanner');
 			
-			const { saveWebsiteData, updateStatistics } = require('../src/modules/database.js');
-			
-			handleDialogAutomatically(cookieDialog, () => {
-				expect(saveWebsiteData).not.toHaveBeenCalled();
-				expect(updateStatistics).not.toHaveBeenCalled();
-				done();
+			// Import mocked modules using ES module syntax
+			import('../src/modules/database.js').then(({ saveWebsiteData, updateStatistics }) => {
+				handleDialogAutomatically(cookieDialog, () => {
+					expect(saveWebsiteData).not.toHaveBeenCalled();
+					expect(updateStatistics).not.toHaveBeenCalled();
+					done();
+				});
 			});
 		});
 	});

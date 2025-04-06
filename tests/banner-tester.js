@@ -75,7 +75,8 @@ function findAcceptButton(container) {
 			// Skip if it's settings or preferences
 			if (text.includes('settings') || text.includes('preferences') || 
 				text.includes('customize') || text.includes('customise') || 
-				text.includes('manage') || text.includes('more about')) {
+				text.includes('manage') || text.includes('options') || 
+				text.includes('more about')) {
 				continue;
 			}
 			return button;
@@ -102,7 +103,8 @@ function findAcceptButton(container) {
 			// Skip if it's a settings, preferences or "more info" button
 			if (buttonText.includes('settings') || buttonText.includes('preferences') || 
 				buttonText.includes('customize') || buttonText.includes('customise') || 
-				buttonText.includes('manage') || buttonText.includes('more about')) {
+				buttonText.includes('manage') || buttonText.includes('options') || 
+				buttonText.includes('more about')) {
 				continue;
 			}
 			return element;
@@ -125,7 +127,8 @@ function findAcceptButton(container) {
 		
 		if (buttonText.includes('settings') || buttonText.includes('preferences') || 
 			buttonText.includes('customize') || buttonText.includes('customise') || 
-			buttonText.includes('manage') || buttonText.includes('more about')) {
+			buttonText.includes('manage') || buttonText.includes('options') || 
+			buttonText.includes('more about')) {
 			continue;
 		}
 		return button;
@@ -166,7 +169,8 @@ function findAcceptButton(container) {
 			// Skip if it's settings or preferences
 			if (text.includes('settings') || text.includes('preferences') || 
 				text.includes('customize') || text.includes('customise') || 
-				text.includes('manage') || text.includes('more about')) {
+				text.includes('manage') || text.includes('options') || 
+				text.includes('more about')) {
 				continue;
 			}
 			
@@ -192,7 +196,8 @@ function findAcceptButton(container) {
 			// Skip if it contains "settings", "preferences", "customize" or "more about"
 			if (text.includes('settings') || text.includes('preferences') || 
 				text.includes('customize') || text.includes('customise') || 
-				text.includes('manage') || text.includes('more about')) {
+				text.includes('manage') || text.includes('options') || 
+				text.includes('more about')) {
 				continue;
 			}
 			return element;
@@ -217,7 +222,7 @@ function findAcceptButton(container) {
 			// Skip if it contains "settings", etc.
 			if (text.includes('settings') || text.includes('preferences') || 
 				text.includes('customize') || text.includes('customise') || 
-				text.includes('manage')) {
+				text.includes('manage') || text.includes('options')) {
 				continue;
 			}
 			return anchor;
@@ -353,7 +358,7 @@ function findNecessaryCookiesButton(container) {
 			// Make sure it's not a settings button
 			if (text.includes('settings') || text.includes('preferences') || 
 				text.includes('customize') || text.includes('customise') || 
-				text.includes('manage')) {
+				text.includes('manage') || text.includes('options')) {
 				continue;
 			}
 			return element;

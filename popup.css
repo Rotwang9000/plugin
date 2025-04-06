@@ -1,0 +1,46 @@
+/* Important links section for non-dev mode */
+.important-links-container {
+	margin-bottom: 20px;
+	padding: 15px;
+	background-color: #f7f9fc;
+	border-radius: 8px;
+	border: 1px solid #e1e7ef;
+}
+
+.important-links-heading {
+	margin: 0 0 10px 0;
+	font-size: 16px;
+	color: #444;
+	font-weight: 600;
+}
+
+.important-links-list {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.important-link {
+	display: flex;
+	align-items: center;
+	padding: 8px 12px;
+	background-color: #fff;
+	border: 1px solid #dde3ed;
+	border-radius: 6px;
+	color: #2c64e9;
+	text-decoration: none;
+	font-size: 14px;
+	transition: all 0.2s ease;
+}
+
+.important-link:hover {
+	background-color: #eef4ff;
+	border-color: #a3c0ff;
+}
+
+.link-icon {
+	margin-right: 8px;
+	font-size: 16px;
+}
+
+/* Existing CSS continues below */ 

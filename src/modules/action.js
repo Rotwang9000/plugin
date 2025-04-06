@@ -4,9 +4,9 @@
  */
 
 // Import utils functions properly to ensure they're available
-const utils = require('./utils');
-const { settings } = require('./settings');
-const { saveWebsiteData, updateStatistics } = require('./database');
+import * as utils from './utils.js';
+import { settings } from './settings.js';
+import { saveWebsiteData, updateStatistics } from './database.js';
 
 /**
  * Check if an element is visible
@@ -284,7 +284,8 @@ function detectAndHandleCookieConsent(callback) {
 	}
 }
 
-module.exports = {
+// Export as ES modules
+export {
 	simulateClick,
 	acceptCookies,
 	rejectCookies,

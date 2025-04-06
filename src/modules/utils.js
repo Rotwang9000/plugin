@@ -3,14 +3,14 @@
  */
 
 // Debug flag
-global.DEBUG = false;
+const DEBUG = false;
 
 /**
  * Logs a message with a prefix if debug mode is enabled
  * @param {*} message - The message to log
  */
 function log(...args) {
-	if (global.DEBUG) {
+	if (DEBUG) {
 		console.log('Cookie Consent Manager:', ...args);
 	}
 }
@@ -191,8 +191,8 @@ function isObjectEmpty(obj) {
 	return obj && Object.keys(obj).length === 0 && obj.constructor === Object;
 }
 
-// Export functions
-module.exports = {
+// Export as ES modules
+export {
 	log,
 	getElementSelector,
 	objectToJson,

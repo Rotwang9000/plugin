@@ -1,0 +1,830 @@
+// Import modules
+const { loadSettings, updateUIFromSettings, updateDevModeUI, toggleDevModeTabs, showTab, initTabNavigation, initSettingsControls } = require('./src/ui/settings-ui.js');
+const { loadAllDialogs, displayAllDialogs, renderDialogItems, getButtonTypeDisplayText, markDialogReviewed } = require('./src/ui/history-ui.js');
+const { displayDetectionStatus, displayDetectedElements } = require('./src/ui/dialog-display.js');
+const { updateDialogCount, clearBadgeCount, displayStatistics, displayChart } = require('./src/ui/stats-ui.js');
+const { formatHtmlWithLineNumbers, escapeHtml, safeGetHtmlContent, createViewableHtmlDocument } = require('./src/modules/html-utils.js');
+const { createElement, clearElement, toggleClass, queryAndProcess, addDebouncedEventListener } = require('./src/modules/dom-utils.js');
+const { getSettings, saveSettings, getDialogHistory, saveDialogToHistory, markDialogAsReviewed, dataCollectionConsent } = require('./src/modules/storage.js');
+const { analyzeDialogSource } = require('./src/detection/smart-detection.js');
+const { sendMessageToBackground, sendMessageToActiveTab } = require('./src/api/messaging.js');
+const { submitDialogRating, fetchCloudStatistics, reportDialogToCloud } = require('./src/api/cloud-api.js');
+
+document.addEventListener('DOMContentLoaded', () => {
+	// Add CSS for the button-type-list class
+	const style = document.createElement('style');
+	style.textContent = `
+		.button-type-list {
+			margin-bottom: 5px;
+			font-size: 12px;
+			color: #666;
+		}
+		
+		/* Cookie detection status styles */
+		.cookie-detection-status {
+			background-color: white;
+			border-radius: 5px;
+			box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+			margin-bottom: 15px;
+			overflow: hidden;
+			cursor: pointer;
+			transition: transform 0.2s;
+		}
+		
+		/* Simple mode styling for non-dev mode */
+		.simple-mode .element-row {
+			display: none;
+		}
+		
+		.simple-mode .rating-buttons {
+			margin-top: 0;
+		}
+		
+		/* Hide Analyze tab in non-dev mode */
+		.tab[data-tab="analyze"].dev-mode-hidden {
+			display: none;
+		}
+		
+		/* Cookie detection status styles */
+		.cookie-detection-status:hover {
+			transform: translateY(-2px);
+			box-shadow: 0 3px 6px rgba(0,0,0,0.15);
+		}
+		
+		.detection-header {
+			padding: 12px 15px;
+			font-weight: bold;
+			font-size: 14px;
+			border-bottom: 1px solid #eee;
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+		}
+		
+		.detection-content {
+			padding: 15px;
+			font-size: 13px;
+		}
+		
+		.status-success {
+			border-left: 4px solid #4CAF50;
+		}
+		.status-success .detection-header {
+			background-color: #e8f5e9;
+			color: #2E7D32;
+		}
+		
+		.status-warning {
+			border-left: 4px solid #FFC107;
+		}
+		.status-warning .detection-header {
+			background-color: #fff8e1;
+			color: #FF6F00;
+		}
+		
+		.status-error {
+			border-left: 4px solid #F44336;
+		}
+		.status-error .detection-header {
+			background-color: #ffebee;
+			color: #C62828;
+		}
+		
+		.status-none {
+			border-left: 4px solid #9E9E9E;
+		}
+		.status-none .detection-header {
+			background-color: #f5f5f5;
+			color: #424242;
+		}
+		
+		.status-icon {
+			margin-right: 10px;
+			font-size: 16px;
+		}
+		
+		.view-details {
+			color: #673AB7;
+			text-decoration: underline;
+			font-size: 12px;
+			margin-top: 10px;
+			display: inline-block;
+			cursor: pointer;
+		}
+		
+		.history-item {
+			background-color: white;
+			margin-bottom: 10px;
+			padding: 10px;
+			border-radius: 5px;
+			box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+			cursor: pointer;
+		}
+		
+		.history-item:hover {
+			background-color: #f5f5f5;
+		}
+		
+		.history-item.active {
+			border-left: 3px solid #673AB7;
+			background-color: #f0f0f0;
+		}
+		
+		.reviewed {
+			border-left: 3px solid #4CAF50;
+		}
+		
+		.not-reviewed {
+			border-left: 3px solid #FFC107;
+		}
+		
+		.history-controls {
+			display: flex;
+			justify-content: space-between;
+			margin-bottom: 15px;
+		}
+		
+		.filter-select {
+			padding: 5px;
+			border-radius: 3px;
+			border: 1px solid #ddd;
+			flex-grow: 1;
+			margin-right: 10px;
+		}
+		
+		.clear-button {
+			padding: 5px 10px;
+			background-color: #F44336;
+			color: white;
+			border: none;
+			border-radius: 3px;
+			cursor: pointer;
+		}
+		
+		.button-display-container {
+			margin-bottom: 15px;
+			padding: 10px;
+			background-color: #f5f5f5;
+			border-radius: 5px;
+			font-size: 13px;
+		}
+		
+		.cookie-button {
+			display: inline-block;
+			margin-right: 5px;
+			margin-bottom: 5px;
+			padding: 5px 10px;
+			background-color: #e0e0e0;
+			border-radius: 3px;
+			cursor: pointer;
+			font-size: 12px;
+		}
+		
+		.cookie-button.selected {
+			background-color: #673AB7;
+			color: white;
+		}
+		
+		.action-button {
+			padding: 5px 10px;
+			background-color: #673AB7;
+			color: white;
+			border: none;
+			border-radius: 3px;
+			cursor: pointer;
+			margin-right: 5px;
+			margin-top: 10px;
+		}
+		
+		.detail-section {
+			margin-top: 15px;
+			padding: 10px;
+			background-color: #f5f5f5;
+			border-radius: 5px;
+		}
+		
+		.detail-item {
+			margin-bottom: 10px;
+			font-size: 13px;
+		}
+		
+		#recommendationsList {
+			font-size: 13px;
+		}
+	`;
+	document.head.appendChild(style);
+	
+	// Initialize UI elements
+	initTabNavigation();
+	
+	// Load settings
+	loadSettings(settings => {
+		// Update UI based on settings
+		updateUIFromSettings(settings);
+		
+		// Initialize settings controls with callback for when settings change
+		initSettingsControls(settings, onSettingsChange);
+		
+		// Update status display with current settings
+		updateStatus(settings);
+		
+		// Check for cookie boxes if enabled
+		if (settings.enabled) {
+			checkForCookieBoxes();
+		}
+		
+		// Update cookie detection status
+		updateCookieDetectionStatus();
+		
+		// Add event listeners for history tab
+		document.addEventListener('history-tab-shown', () => {
+			loadAllDialogs('all', displayHistoryDialogs);
+		});
+		
+		// Add dialog action buttons
+		addDialogActionButtons();
+		
+		// Set up analyze tab if in dev mode
+		if (settings.devMode) {
+			setupAnalyzeTab();
+		}
+		
+		// Add event listeners for clear badge count
+		clearBadgeCount();
+	});
+	
+	// Setup dashboard tab with statistics
+	setupDashboardTab();
+	
+	// Check data collection consent
+	checkDataCollectionConsent();
+});
+
+/**
+ * Handle settings changes
+ * @param {Object} settings - Updated settings
+ */
+function onSettingsChange(settings) {
+	// Update status with new settings
+	updateStatus(settings);
+	
+	// Send settings to content script
+	sendMessageToActiveTab({
+		action: 'detectionSetting',
+		settings: {
+			enabled: settings.enabled,
+			smartMode: settings.smartMode,
+			cloudMode: settings.cloudMode,
+			autoAccept: settings.autoAccept,
+			privacyMode: settings.privacyMode,
+			gdprCompliance: settings.gdprCompliance,
+			devMode: settings.devMode
+		}
+	});
+	
+	// Update cookie detection status
+	updateCookieDetectionStatus();
+}
+
+/**
+ * Setup dashboard tab with statistics
+ */
+function setupDashboardTab() {
+	const statsContainer = document.getElementById('statistics-container');
+	if (statsContainer) {
+		displayStatistics(statsContainer);
+	}
+	
+	// Example chart data
+	const chartContainer = document.getElementById('chart-container');
+	if (chartContainer) {
+		fetchCloudStatistics(stats => {
+			const chartData = {
+				'Cloud': stats.cloudMatches || 0,
+				'Smart': stats.smartMatches || 0,
+				'Manual': stats.manualMatches || 0
+			};
+			displayChart(chartContainer, chartData);
+		});
+	}
+}
+
+/**
+ * Setup the analyze tab functionality
+ */
+function setupAnalyzeTab() {
+	const analyzeForm = document.getElementById('analyze-form');
+	const analyzeResults = document.getElementById('analyze-results');
+	
+	if (analyzeForm) {
+		analyzeForm.addEventListener('submit', (e) => {
+			e.preventDefault();
+			const sourceInput = document.getElementById('source-input');
+			const html = sourceInput.value.trim();
+			
+			if (html) {
+				// Analyze the HTML using our detection module
+				const result = analyzeDialogSource(html);
+				displayAnalysisResults(result);
+			}
+		});
+	}
+}
+
+/**
+ * Display history dialogs in the UI
+ * @param {Array} dialogs - Array of dialog objects
+ */
+function displayHistoryDialogs(dialogs) {
+	const historyContainer = document.getElementById('history-container');
+	const controls = displayAllDialogs(dialogs, historyContainer, (dialog) => {
+		loadDialogDetails(dialog, true);
+	});
+	
+	// Add filter change handler
+	if (controls && controls.filterSelect) {
+		controls.filterSelect.addEventListener('change', () => {
+			loadAllDialogs(controls.filterSelect.value, displayHistoryDialogs);
+		});
+	}
+	
+	// Add clear history handler
+	if (controls && controls.clearButton) {
+		controls.clearButton.addEventListener('click', () => {
+			if (confirm('Are you sure you want to clear all history?')) {
+				chrome.storage.local.set({ dialogHistory: [] }, () => {
+					// Refresh the list after clearing
+					loadAllDialogs('all', displayHistoryDialogs);
+				});
+			}
+		});
+	}
+}
+
+/**
+ * Check data collection consent
+ */
+function checkDataCollectionConsent() {
+	chrome.storage.local.get(['dataCollectionConsent'], (result) => {
+		const consentCheckbox = document.getElementById('data-collection-consent');
+		if (consentCheckbox) {
+			consentCheckbox.checked = result.dataCollectionConsent === true;
+			
+			// Add event listener for changes
+			consentCheckbox.addEventListener('change', toggleDataCollectionConsent);
+		}
+	});
+}
+
+/**
+ * Toggle data collection consent
+ */
+function toggleDataCollectionConsent() {
+	const consentCheckbox = document.getElementById('data-collection-consent');
+	const consent = consentCheckbox.checked;
+	
+	// Save consent status
+	chrome.storage.local.set({ dataCollectionConsent: consent });
+	
+	// Send message to background
+	chrome.runtime.sendMessage({
+		action: 'setDataCollectionConsent',
+		consent
+	});
+}
+
+/**
+ * Update status based on settings
+ * @param {Object} settings - Settings object
+ */
+function updateStatus(settings) {
+	// Update status elements
+	queryAndProcess('#enabledStatus', el => {
+		el.textContent = settings.enabled ? 'Enabled' : 'Disabled';
+		el.className = settings.enabled ? 'status-enabled' : 'status-disabled';
+	});
+	
+	queryAndProcess('#smartModeStatus', el => {
+		el.textContent = settings.smartMode ? 'Enabled' : 'Disabled';
+		el.className = settings.smartMode ? 'status-enabled' : 'status-disabled';
+	});
+	
+	queryAndProcess('#cloudModeStatus', el => {
+		el.textContent = settings.cloudMode ? 'Enabled' : 'Disabled';
+		el.className = settings.cloudMode ? 'status-enabled' : 'status-disabled';
+	});
+	
+	// Update the tabs visibility based on dev mode
+	toggleDevModeTabs(settings.devMode);
+}
+
+/**
+ * Check for cookie boxes on the current page
+ */
+function checkForCookieBoxes() {
+	sendMessageToActiveTab({ action: 'checkForCookieBoxes' }, response => {
+		if (response && response.boxFound) {
+			updateDialogCount();
+		}
+	});
+}
+
+/**
+ * Report a cookie box to the cloud service
+ */
+function reportCookieBox() {
+	checkConsentBeforeAction(() => {
+		// Show loading state
+		document.getElementById('reportButton').textContent = 'Reporting...';
+		
+		// Get the current tab's URL and send a report
+		chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
+			if (tabs.length === 0) return;
+			
+			const currentUrl = tabs[0].url;
+			
+			// Send message to content script to get HTML
+			sendMessageToActiveTab({ action: 'getPageSource' }, response => {
+				if (response && response.html) {
+					// Report the dialog data
+					const dialogData = {
+						url: currentUrl,
+						html: response.html,
+						timestamp: Date.now(),
+						reportedByUser: true
+					};
+					
+					reportDialogToCloud(dialogData, result => {
+						document.getElementById('reportButton').textContent = 'Report Cookie Box';
+						
+						if (result && result.success) {
+							alert('Thank you for your report! It will help improve cookie handling for everyone.');
+						} else {
+							alert('There was an error submitting your report. Please try again later.');
+						}
+					});
+				}
+			});
+		});
+	});
+}
+
+/**
+ * Load dialog details into the UI
+ * @param {Object} dialog - Dialog object to display
+ * @param {boolean} isHistory - Whether this is from history view
+ */
+function loadDialogDetails(dialog, isHistory = false) {
+	const detailsContainer = document.getElementById(isHistory ? 'history-details-container' : 'details-container');
+	clearElement(detailsContainer);
+	
+	if (!dialog) {
+		createElement('p', null, 'No dialog selected.', detailsContainer);
+		return;
+	}
+	
+	// Create details header
+	createElement('h3', null, `Dialog Details: ${dialog.domain || 'Unknown'}`, detailsContainer);
+	
+	// Add timestamp
+	const timestamp = new Date(dialog.timestamp || 0);
+	createElement('p', { className: 'detail-timestamp' }, `Detected: ${timestamp.toLocaleString()}`, detailsContainer);
+	
+	// Create details sections
+	const sectionsContainer = createElement('div', { className: 'details-sections' }, null, detailsContainer);
+	
+	// Elements section
+	const elementsSection = createElement('div', { className: 'detail-section' }, null, sectionsContainer);
+	createElement('h4', null, 'Detected Elements', elementsSection);
+	
+	// Load settings to check dev mode
+	loadSettings(settings => {
+		const elementsContainer = createElement('div', { className: 'elements-container' }, null, elementsSection);
+		displayDetectedElements(dialog, elementsContainer, settings.devMode);
+		
+		// Display HTML code section
+		const codeSection = createElement('div', { className: 'detail-section' }, null, sectionsContainer);
+		createElement('h4', null, 'HTML Source', codeSection);
+		
+		const codeContainer = createElement('div', { className: 'code-container' }, null, codeSection);
+		if (dialog.html) {
+			codeContainer.innerHTML = formatHtmlWithLineNumbers(escapeHtml(dialog.html));
+			
+			// Add view in new tab button
+			const viewButton = createElement('button', { className: 'action-button' }, 'View in New Tab', codeSection);
+			
+			viewButton.addEventListener('click', () => {
+				const htmlDoc = createViewableHtmlDocument(dialog.html, dialog.domain || 'Unknown');
+				const blob = new Blob([htmlDoc], { type: 'text/html' });
+				const url = URL.createObjectURL(blob);
+				chrome.tabs.create({ url });
+			});
+		} else {
+			createElement('p', null, 'No HTML source available.', codeContainer);
+		}
+		
+		// Add review section
+		addReviewSection(isHistory);
+	});
+}
+
+/**
+ * Display analysis results from Smart Detection
+ * @param {Object} result - Analysis results object
+ */
+function displayAnalysisResults(result) {
+	const resultsContainer = document.getElementById('analyze-results');
+	clearElement(resultsContainer);
+	
+	// Create results header
+	createElement('h3', null, `Analysis Results`, resultsContainer);
+	
+	// Display score and confidence
+	const scoreSection = createElement('div', { className: 'detail-section' }, null, resultsContainer);
+	createElement('h4', null, `Score: ${result.score}/10 (${result.confidence} confidence)`, scoreSection);
+	
+	// Display details
+	if (result.details && result.details.length > 0) {
+		createElement('h4', { className: 'details-heading' }, 'Detected Patterns:', scoreSection);
+		
+		const detailsList = createElement('ul', { className: 'details-list' }, null, scoreSection);
+		
+		result.details.forEach(detail => {
+			createElement('li', null, 
+				`${detail.pattern}: ${detail.matches} matches (score contribution: ${detail.score.toFixed(1)})`, 
+				detailsList
+			);
+		});
+	} else {
+		createElement('p', null, 'No patterns detected.', scoreSection);
+	}
+	
+	// Add recommendations based on score
+	const recommendationsSection = createElement('div', { className: 'detail-section' }, null, resultsContainer);
+	createElement('h4', null, 'Recommendations', recommendationsSection);
+	
+	const recommendationsList = createElement('ul', { id: 'recommendationsList' }, null, recommendationsSection);
+	
+	if (result.score >= 7) {
+		createElement('li', null, 'High confidence this is a cookie consent dialog.', recommendationsList);
+		createElement('li', null, 'Consider contributing this to the pattern database.', recommendationsList);
+	} else if (result.score >= 4) {
+		createElement('li', null, 'Moderate confidence this might be a cookie consent dialog.', recommendationsList);
+		createElement('li', null, 'Check the HTML for more cookie-related content.', recommendationsList);
+	} else {
+		createElement('li', null, 'Low confidence this is a cookie consent dialog.', recommendationsList);
+		createElement('li', null, 'This is likely not a cookie consent dialog.', recommendationsList);
+	}
+}
+
+/**
+ * Check consent before performing an action that requires it
+ * @param {Function} actionCallback - Callback to run if consent is given
+ * @param {Function} declineCallback - Optional callback if consent is declined
+ */
+function checkConsentBeforeAction(actionCallback, declineCallback = null) {
+	chrome.storage.local.get(['dataCollectionConsent'], (result) => {
+		const hasConsent = result.dataCollectionConsent === true;
+		
+		if (hasConsent) {
+			// Already has consent, run the action
+			actionCallback();
+		} else {
+			// Ask for consent
+			if (confirm('This action requires your consent to collect and process cookie dialog data. This helps improve detection for everyone. Would you like to provide consent?')) {
+				// Save consent
+				chrome.storage.local.set({ dataCollectionConsent: true }, () => {
+					// Update checkbox
+					const consentCheckbox = document.getElementById('data-collection-consent');
+					if (consentCheckbox) {
+						consentCheckbox.checked = true;
+					}
+					
+					// Run the action
+					actionCallback();
+				});
+			} else if (typeof declineCallback === 'function') {
+				declineCallback();
+			}
+		}
+	});
+}
+
+/**
+ * Update the cookie detection status UI
+ */
+function updateCookieDetectionStatus() {
+	const statusContainer = document.getElementById('cookie-detection-status');
+	if (!statusContainer) return;
+	
+	// Clear existing status
+	clearElement(statusContainer);
+	
+	// Load settings to determine what to display
+	loadSettings(settings => {
+		// Check if extension is enabled
+		if (!settings.enabled) {
+			// Display disabled status
+			displayDetectionStatus({
+				type: 'error',
+				title: 'Extension Disabled',
+				message: 'The Cookie Consent Manager is currently disabled. Enable it in settings to automatically handle cookie consent dialogs.'
+			}, statusContainer);
+			return;
+		}
+		
+		// Check active modes
+		let activeModesText = '';
+		if (settings.smartMode && settings.cloudMode) {
+			activeModesText = 'Smart Mode and Cloud Mode are active.';
+		} else if (settings.smartMode) {
+			activeModesText = 'Smart Mode is active.';
+		} else if (settings.cloudMode) {
+			activeModesText = 'Cloud Mode is active.';
+		} else {
+			// No active detection modes
+			displayDetectionStatus({
+				type: 'warning',
+				title: 'No Detection Mode Active',
+				message: 'Neither Smart Mode nor Cloud Mode is enabled. Enable at least one mode in settings to detect cookie dialogs.'
+			}, statusContainer);
+			return;
+		}
+		
+		// Get current tab to check for dialogs
+		chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
+			if (tabs.length === 0) return;
+			
+			// Send message to check for cookie dialogs
+			sendMessageToActiveTab({ action: 'getCapturedDialogs' }, response => {
+				if (response && response.dialogs && response.dialogs.length > 0) {
+					// Dialogs detected on this page
+					displayDetectionStatus({
+						type: 'success',
+						title: 'Cookie Dialog Detected',
+						message: `A cookie consent dialog was detected on this page and ${settings.autoAccept ? 'automatically handled' : 'is available for handling'}. ${activeModesText}`
+					}, statusContainer);
+				} else {
+					// No dialogs detected
+					displayDetectionStatus({
+						type: 'none',
+						title: 'No Cookie Dialog Detected',
+						message: `No cookie consent dialog was detected on this page. ${activeModesText} If you see a cookie dialog that wasn't detected, please report it.`
+					}, statusContainer);
+					
+					// Add report button
+					const reportContainer = createElement('div', { className: 'report-container' }, null, statusContainer);
+					const reportButton = createElement('button', { 
+						id: 'reportButton',
+						className: 'action-button report-button' 
+					}, 'Report Cookie Box', reportContainer);
+					
+					reportButton.addEventListener('click', reportCookieBox);
+				}
+			});
+		});
+	});
+}
+
+/**
+ * Add action buttons for dialog handling
+ */
+function addDialogActionButtons() {
+	const actionContainer = document.getElementById('dialog-actions');
+	if (!actionContainer) return;
+	
+	// Create buttons
+	const acceptButton = createElement('button', { 
+		id: 'acceptButton', 
+		className: 'action-button accept-button' 
+	}, 'Accept Cookies', actionContainer);
+	
+	const rejectButton = createElement('button', { 
+		id: 'rejectButton', 
+		className: 'action-button reject-button' 
+	}, 'Reject Cookies', actionContainer);
+	
+	const settingsButton = createElement('button', { 
+		id: 'settingsButton', 
+		className: 'action-button settings-button' 
+	}, 'Cookie Settings', actionContainer);
+	
+	// Add event listeners
+	acceptButton.addEventListener('click', () => {
+		sendButtonClickCommand('accept');
+	});
+	
+	rejectButton.addEventListener('click', () => {
+		sendButtonClickCommand('reject');
+	});
+	
+	settingsButton.addEventListener('click', () => {
+		sendButtonClickCommand('settings');
+	});
+}
+
+/**
+ * Send button click command to the content script
+ * @param {string} buttonType - Type of button to click (accept, reject, settings)
+ */
+function sendButtonClickCommand(buttonType) {
+	sendMessageToActiveTab({
+		action: 'clickButton',
+		buttonType
+	}, response => {
+		if (response && response.success) {
+			alert(`Successfully clicked ${buttonType} button.`);
+		} else {
+			alert(`Failed to click ${buttonType} button. ${response?.error || ''}`);
+		}
+	});
+}
+
+/**
+ * Add review section to dialog details
+ * @param {boolean} isHistory - Whether this is from history view
+ */
+function addReviewSection(isHistory = false) {
+	const detailsContainer = document.getElementById(isHistory ? 'history-details-container' : 'details-container');
+	const activeDialog = document.querySelector('.history-item.active');
+	if (!activeDialog) return;
+	
+	const dialogId = activeDialog.dataset.id;
+	if (!dialogId) return;
+	
+	// Create review section
+	const reviewSection = createElement('div', { className: 'detail-section review-section' }, null, detailsContainer);
+	createElement('h4', null, 'Rate this Match', reviewSection);
+	
+	// Create good match section
+	const reviewControls = createElement('div', { className: 'review-controls' }, null, reviewSection);
+	
+	// Create rating buttons
+	const ratingButtons = createElement('div', { className: 'rating-buttons' }, null, reviewControls);
+	
+	// Good match button
+	const goodMatchButton = createElement('button', { 
+		className: 'action-button good-match-button',
+		'data-rating': 'good'
+	}, 'Good Match', ratingButtons);
+	
+	// Bad match button
+	const badMatchButton = createElement('button', { 
+		className: 'action-button bad-match-button',
+		'data-rating': 'bad'
+	}, 'Bad Match', ratingButtons);
+	
+	// Add event listeners
+	goodMatchButton.addEventListener('click', () => {
+		submitRating(dialogId, 5, true);
+		markDialogReviewed(dialogId, () => {
+			// Mark the item as reviewed in the UI
+			if (activeDialog) {
+				activeDialog.classList.remove('not-reviewed');
+				activeDialog.classList.add('reviewed');
+			}
+		});
+	});
+	
+	badMatchButton.addEventListener('click', () => {
+		submitRating(dialogId, 1, false);
+		markDialogReviewed(dialogId, () => {
+			// Mark the item as reviewed in the UI
+			if (activeDialog) {
+				activeDialog.classList.remove('not-reviewed');
+				activeDialog.classList.add('reviewed');
+			}
+		});
+	});
+}
+
+/**
+ * Submit a rating for a dialog
+ * @param {string} dialogId - ID of the dialog
+ * @param {number} rating - Rating value (1-5)
+ * @param {boolean} isGoodMatch - Whether it was a good match
+ */
+function submitRating(dialogId, rating, isGoodMatch) {
+	// Check consent before submitting
+	checkConsentBeforeAction(() => {
+		// Get the dialog from storage
+		chrome.storage.local.get(['dialogHistory', 'capturedDialogs'], (result) => {
+			// Look for the dialog in both locations
+			let dialog = (result.capturedDialogs || []).find(d => d.id === dialogId);
+			if (!dialog) {
+				dialog = (result.dialogHistory || []).find(d => d.id === dialogId);
+			}
+			
+			if (dialog) {
+				// Submit the rating
+				submitDialogRating(dialogId, rating, isGoodMatch, dialog, response => {
+					if (response && response.success) {
+						alert('Thank you for your feedback! Your rating helps improve cookie handling for everyone.');
+					} else {
+						alert('There was an error submitting your rating. Please try again later.');
+					}
+				});
+			}
+		});
+	});
+} 

@@ -124,7 +124,7 @@ function runCloudMode() {
 	
 	// Check if consent is given for cloud mode
 	if (!dataCollectionConsent) {
-		console.log('Cookie Consent Manager: Cloud mode requires consent');
+		console.log('Cookie Consent Manager: Cloud mode requires consent.');
 		return false;
 	}
 	

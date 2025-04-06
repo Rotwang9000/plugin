@@ -59,6 +59,52 @@ Key test utilities:
 - Mock storage for settings and history
 - Language and region detection tests
 
+### Banner Testing
+
+The project includes special tools for testing cookie banner detection:
+
+#### Banner Tester
+
+A utility that tests our button detection logic against a directory of banner HTML examples:
+
+```bash
+# Run the banner tester on all examples
+npx jest tests/banner-tester.test.js --verbose
+
+# Test a specific banner example
+npx jest tests/banner-tester.test.js --verbose -- --test-file=google-type.html
+```
+
+This generates a detailed report showing:
+- Element counts (buttons, links, etc.)
+- Detected accept/reject buttons
+- Any potential issues
+
+#### Banner Extractor
+
+A tool for analyzing complex banners and extracting key interactive elements:
+
+```bash
+# Extract and analyze a specific banner
+node tests/banner-extract.js google-type.html
+
+# Save the analysis to a file
+node tests/banner-extract.js google-type.html --output google-analysis.md
+```
+
+This helps with debugging by:
+- Scoring elements by relevance to cookie consent
+- Extracting only the most relevant elements
+- Providing a simplified view of complex structures
+
+#### Simplified Diagnostics
+
+For large, complex banners (over 50KB), the tester automatically:
+- Creates simplified diagnostic HTML files
+- Focuses only on interactive elements
+- Provides visual representation of detection results
+- Makes debugging large structures manageable
+
 ### Test Fixes
 
 The test suite has been updated to be compatible with the new UI changes:
@@ -227,4 +273,103 @@ npm run dev
 npm run build
 ```
 
-The bundled files are output to the `dist/` directory and referenced by the extension's manifest. 
+The bundled files are output to the `dist/` directory and referenced by the extension's manifest.
+
+## Server Component
+
+The Cookie Consent Manager now includes a server component that handles:
+
+1. Receiving and storing cookie consent dialog reviews
+2. Admin panel for reviewing and approving submissions
+3. Building a database of cookie consent patterns
+
+### Running the Server
+
+To run the server component:
+
+```bash
+# Navigate to the server directory
+cd server
+
+# Install dependencies
+npm install
+
+# Start the server
+npm start
+```
+
+The server will run on port 3000 by default. The admin panel is available at [http://localhost:3000/admin](http://localhost:3000/admin).
+
+### API Endpoints
+
+The server provides the following API endpoints:
+
+- `POST /api/reviews` - Submit a new review
+- `GET /api/reviews` - Get reviews (with optional filtering)
+- `PATCH /api/reviews/:id` - Update a review's status
+- `GET /api/patterns` - Get patterns (with optional filtering)
+- `POST /api/patterns/:id/use` - Update pattern usage count
+
+See the [server README](server/README.md) for detailed API documentation.
+
+## Known Issues and Refactoring Needs
+
+### Code Duplication and Large Files
+
+- **Duplicate functions**: There are duplicate functions in the codebase that should be consolidated, such as `formatHtmlWithLineNumbers` appearing twice in popup.js (lines 1986 and 2111).
+
+- **Large files**: Some files exceed the recommended 2500-line limit:
+  - popup.js (2844 lines) - Should be refactored into smaller modules
+  - content.js (1804 lines) - Approaching the limit
+
+### Refactoring Recommendations
+
+1. **Module separation**: Split large files into logical modules (UI handling, dialog management, settings, etc.)
+2. **Remove duplicated code**: Consolidate duplicate functions
+3. **Move utility functions**: Create a utilities module for functions like `formatHtmlWithLineNumbers` and `escapeHtml`
+4. **Apply consistent code style**: Ensure tabs are used throughout (not spaces)
+5. **Improve error handling**: Add more robust error handling and logging 
+
+## Refactoring Progress
+
+The project is currently undergoing a major refactoring to improve maintainability and code organization.
+
+### Implemented Modules
+
+#### Core Utilities
+- ✅ `modules/dom-utils.js` - DOM manipulation helpers
+- ✅ `modules/html-utils.js` - HTML formatting functions
+- ✅ `modules/storage.js` - Storage operations
+
+#### UI Modules
+- ✅ `ui/dialog-display.js` - Dialog rendering functions 
+- ✅ `ui/history-ui.js` - History display
+- ✅ `ui/settings-ui.js` - Settings interface
+- ✅ `ui/stats-ui.js` - Statistics and counters
+
+#### Detection Modules
+- ✅ `detection/smart-detection.js` - Smart mode cookie banner detection
+- ✅ `detection/cloud-detection.js` - Cloud pattern matching
+- ✅ `detection/button-recognition.js` - Button identification
+
+#### API Modules
+- ✅ `api/messaging.js` - Cross-script messaging
+- ✅ `api/cloud-api.js` - Cloud service interactions
+
+### Entry Points Refactored
+- ✅ popup.js - Completely refactored to use the module system
+- ✅ content.js - Refactored to use the modular code structure
+- ✅ background.js - Refactored to use the modular approach
+
+### Next Steps
+
+1. ✅ Update main entry points to use modular approach
+
+2. Write tests for the new modules:
+   - ✅ Basic tests for popup.js refactoring
+   - ✅ Basic tests for content.js refactoring
+   - ✅ Basic tests for background.js refactoring
+   - ⬜ Comprehensive tests for individual modules
+   - ⬜ Integration tests for module interactions
+
+3. Verify all functionality works as expected 

@@ -3,7 +3,7 @@
  * Contains functions for finding and analyzing cookie consent dialogs
  */
 
-const utils = require('./utils');
+import * as utils from './utils.js';
 
 /**
  * Check if an element is visible
@@ -261,6 +261,13 @@ function detectCookieConsent() {
 	}
 	
 	const { acceptButton, rejectButton } = findCookieConsentButtons(dialog);
+	
+	// If we found a dialog but no accept button, ignore it completely
+	// This avoids false positives with media dialogs and other non-cookie elements
+	if (!acceptButton) {
+		return { dialog: null, acceptButton: null, rejectButton: null };
+	}
+	
 	return { dialog, acceptButton, rejectButton };
 }
 
@@ -337,7 +344,8 @@ function analysePage() {
 	};
 }
 
-module.exports = {
+// Export as ES modules
+export {
 	findCookieConsentDialog,
 	findCookieConsentButtons,
 	getCookieButtons,

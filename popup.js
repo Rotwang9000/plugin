@@ -1,3 +1,15 @@
+// Import modules
+import { loadSettings, updateUIFromSettings, updateDevModeUI, toggleDevModeTabs, showTab, initTabNavigation, initSettingsControls } from './src/ui/settings-ui.js';
+import { loadAllDialogs, displayAllDialogs, renderDialogItems, getButtonTypeDisplayText, markDialogReviewed } from './src/ui/history-ui.js';
+import { displayDetectionStatus, displayDetectedElements } from './src/ui/dialog-display.js';
+import { updateDialogCount, clearBadgeCount, displayStatistics, displayChart } from './src/ui/stats-ui.js';
+import { formatHtmlWithLineNumbers, escapeHtml, safeGetHtmlContent, createViewableHtmlDocument } from './src/modules/html-utils.js';
+import { createElement, clearElement, toggleClass, queryAndProcess, addDebouncedEventListener } from './src/modules/dom-utils.js';
+import { getSettings, saveSettings, getDialogHistory, saveDialogToHistory, markDialogAsReviewed, dataCollectionConsent } from './src/modules/storage.js';
+import { analyzeDialogSource } from './src/detection/smart-detection.js';
+import { sendMessageToBackground, sendMessageToActiveTab } from './src/api/messaging.js';
+import { submitDialogRating, fetchCloudStatistics, reportDialogToCloud } from './src/api/cloud-api.js';
+
 document.addEventListener('DOMContentLoaded', () => {
 	// Add CSS for the button-type-list class
 	const style = document.createElement('style');
@@ -6,6 +18,98 @@ document.addEventListener('DOMContentLoaded', () => {
 			margin-bottom: 5px;
 			font-size: 12px;
 			color: #666;
+		}
+		
+		/* Cookie detection status styles */
+		.cookie-detection-status {
+			background-color: white;
+			border-radius: 5px;
+			box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+			margin-bottom: 15px;
+			overflow: hidden;
+			cursor: pointer;
+			transition: transform 0.2s;
+		}
+		
+		/* Simple mode styling for non-dev mode */
+		.simple-mode .element-row {
+			display: none;
+		}
+		
+		.simple-mode .rating-buttons {
+			margin-top: 0;
+		}
+		
+		/* Hide Analyze tab in non-dev mode */
+		.tab[data-tab="analyze"].dev-mode-hidden {
+			display: none;
+		}
+		
+		/* Cookie detection status styles */
+		.cookie-detection-status:hover {
+			transform: translateY(-2px);
+			box-shadow: 0 3px 6px rgba(0,0,0,0.15);
+		}
+		
+		.detection-header {
+			padding: 12px 15px;
+			font-weight: bold;
+			font-size: 14px;
+			border-bottom: 1px solid #eee;
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+		}
+		
+		.detection-content {
+			padding: 15px;
+			font-size: 13px;
+		}
+		
+		.status-success {
+			border-left: 4px solid #4CAF50;
+		}
+		.status-success .detection-header {
+			background-color: #e8f5e9;
+			color: #2E7D32;
+		}
+		
+		.status-warning {
+			border-left: 4px solid #FFC107;
+		}
+		.status-warning .detection-header {
+			background-color: #fff8e1;
+			color: #FF6F00;
+		}
+		
+		.status-error {
+			border-left: 4px solid #F44336;
+		}
+		.status-error .detection-header {
+			background-color: #ffebee;
+			color: #C62828;
+		}
+		
+		.status-none {
+			border-left: 4px solid #9E9E9E;
+		}
+		.status-none .detection-header {
+			background-color: #f5f5f5;
+			color: #424242;
+		}
+		
+		.status-icon {
+			margin-right: 10px;
+			font-size: 16px;
+		}
+		
+		.view-details {
+			color: #673AB7;
+			text-decoration: underline;
+			font-size: 12px;
+			margin-top: 10px;
+			display: inline-block;
+			cursor: pointer;
 		}
 		
 		.history-item {
@@ -106,1358 +210,501 @@ document.addEventListener('DOMContentLoaded', () => {
 		
 		#recommendationsList {
 			font-size: 13px;
-			padding-left: 20px;
-		}
-		
-		.success {
-			color: #4CAF50;
-		}
-		
-		.warning {
-			color: #FFC107;
-		}
-		
-		.error {
-			color: #F44336;
-		}
-		
-		.details-content {
-			margin-top: 15px;
 		}
 	`;
 	document.head.appendChild(style);
 	
-	// Settings tab elements
-	const enabledToggle = document.getElementById('enabled');
-	const autoAcceptToggle = document.getElementById('autoAccept');
-	const smartModeToggle = document.getElementById('smartMode');
-	const cloudModeToggle = document.getElementById('cloudMode');
-	const privacyModeToggle = document.getElementById('privacyMode');
-	const gdprComplianceToggle = document.getElementById('gdprCompliance');
-	const statusElement = document.getElementById('status');
-	const dataCollectionConsentStatus = document.getElementById('dataCollectionConsentStatus');
-	const dataCollectionConsentBtn = document.getElementById('dataCollectionConsentBtn');
+	// Initialize tab navigation with proper tab switching
+	initProperTabNavigation();
 	
-	// Review tab elements
-	const dialogCount = document.getElementById('dialogCount');
+	// Initialize settings controls with proper saving
+	initProperSettingsControls();
 	
-	// Details tab elements
-	const dialogDetailContainer = document.getElementById('dialogDetailContainer');
-	const dialogFrame = document.getElementById('dialogFrame');
-	const noSelectionMessage = document.getElementById('noSelectionMessage');
-	const detailedInfoElement = document.getElementById('detailedInfo');
-	const goodMatchBtn = document.getElementById('goodMatchBtn');
-	const badMatchBtn = document.getElementById('badMatchBtn');
-	const submissionStatus = document.getElementById('submissionStatus');
-	const exportBtn = document.getElementById('exportBtn');
-	const viewSourceBtn = document.getElementById('viewSourceBtn');
-	const copyLinkBtn = document.getElementById('copyLinkBtn');
-	const buttonDisplayContainer = document.querySelector('.button-display-container');
+	// Set up event listeners for the account tab
+	setupAccountTab();
 	
-	// Analyze tab elements
-	const sourceInput = document.getElementById('sourceInput');
-	const analyzeBtn = document.getElementById('analyzeBtn');
-	const analysisResults = document.getElementById('analysisResults');
-	const detectionResult = document.getElementById('detectionResult');
-	const cookieTermsResult = document.getElementById('cookieTermsResult');
-	const buttonsResult = document.getElementById('buttonsResult');
-	const acceptButtonResult = document.getElementById('acceptButtonResult');
-	const necessaryButtonResult = document.getElementById('necessaryButtonResult');
-	const recommendationsList = document.getElementById('recommendationsList');
+	// Initial loading of settings and data
+	loadSettings().then(settings => {
+		updateUIFromSettings(settings);
+		updateDevModeUI(settings.devMode);
+		updateStatus(settings);
+		
+		// Check the premium status
+		checkPremiumStatus();
+		
+		// Check data collection consent
+		checkDataCollectionConsent();
+		
+		// Check cookie status on current page
+		updateCurrentPageStatus();
+	});
 	
-	// Filter elements
-	const historyFilter = document.getElementById('historyFilter');
-	const clearHistoryBtn = document.getElementById('clearHistoryBtn');
+	// Setup other tabs
+	setupDashboardTab();
+	setupAnalyzeTab();
 	
-	// Tab navigation
+	// Load and display dialogs in the history tab
+	loadAllDialogs().then(dialogs => {
+		displayAllDialogs(dialogs);
+	});
+	
+	// Update the dialog count badge
+	updateDialogCount();
+	
+	// Make sure premium features are disabled with overlay
+	disablePremiumFeatures();
+});
+
+// Initialize proper tab navigation that actually works
+function initProperTabNavigation() {
 	const tabs = document.querySelectorAll('.tab');
 	const tabContents = document.querySelectorAll('.tab-content');
 	
-	// Current dialog being displayed
-	let currentDialog = null;
-	let currentDialogId = null;
-	
-	// Tab switching
 	tabs.forEach(tab => {
 		tab.addEventListener('click', () => {
-			const tabName = tab.getAttribute('data-tab');
-			
-			// Remove active class from all tabs
+			// Remove active class from all tabs and contents
 			tabs.forEach(t => t.classList.remove('active'));
-			tabContents.forEach(tc => tc.classList.remove('active'));
+			tabContents.forEach(c => c.classList.remove('active'));
 			
-			// Add active class to current tab
+			// Add active class to clicked tab
 			tab.classList.add('active');
-			document.getElementById(`${tabName}-tab`).classList.add('active');
 			
-			// Special handling for review tab
-			if (tabName === 'review') {
-				loadAllDialogs();
+			// Add active class to corresponding content
+			const tabId = tab.getAttribute('data-tab');
+			const tabContent = document.getElementById(tabId);
+			if (tabContent) {
+				tabContent.classList.add('active');
 			}
 			
-			// If details tab is selected but no dialog is selected, show the no selection message
-			if (tabName === 'details') {
-				if (!currentDialog) {
-					dialogDetailContainer.style.display = 'none';
-					noSelectionMessage.style.display = 'block';
-				} else {
-					dialogDetailContainer.style.display = 'block';
-					noSelectionMessage.style.display = 'none';
-				}
+			// If on the settings tab, update the current page status
+			if (tabId === 'settings') {
+				updateCurrentPageStatus();
 			}
 		});
 	});
+}
 
-	// Load saved settings with localStorage fallback
-	function loadSettings() {
-		chrome.storage.sync.get({
-			enabled: true,
-			autoAccept: true,
-			smartMode: true,
-			cloudMode: false,
-			privacyMode: false,
-			gdprCompliance: false
-		}, (settings) => {
-			enabledToggle.checked = settings.enabled;
-			autoAcceptToggle.checked = settings.autoAccept;
-			smartModeToggle.checked = settings.smartMode;
-			cloudModeToggle.checked = settings.cloudMode;
-			privacyModeToggle.checked = settings.privacyMode;
-			gdprComplianceToggle.checked = settings.gdprCompliance;
-			updateStatus(settings);
-		}).catch(error => {
-			console.log('Error loading settings from Chrome storage, falling back to localStorage', error);
-			try {
-				const savedSettings = localStorage.getItem('ccm_settings');
-				if (savedSettings) {
-					const settings = JSON.parse(savedSettings);
-					enabledToggle.checked = settings.enabled;
-					autoAcceptToggle.checked = settings.autoAccept;
-					smartModeToggle.checked = settings.smartMode;
-					cloudModeToggle.checked = settings.cloudMode;
-					privacyModeToggle.checked = settings.privacyMode;
-					gdprComplianceToggle.checked = settings.gdprCompliance;
-					updateStatus(settings);
-					console.log('Loaded settings from localStorage fallback');
-				} else {
-					// Use defaults if nothing in localStorage
-					enabledToggle.checked = true;
-					autoAcceptToggle.checked = true;
-					smartModeToggle.checked = true;
-					cloudModeToggle.checked = false;
-					privacyModeToggle.checked = false;
-					gdprComplianceToggle.checked = false;
-					updateStatus({
-						enabled: true,
-						autoAccept: true,
-						smartMode: true,
-						cloudMode: false,
-						privacyMode: false,
-						gdprCompliance: false
-					});
-					console.log('Using default settings (no localStorage fallback found)');
-				}
-			} catch (e) {
-				console.error('Error parsing localStorage settings', e);
-				// Use defaults in case of any error
-				enabledToggle.checked = true;
-				autoAcceptToggle.checked = true;
-				smartModeToggle.checked = true;
-				cloudModeToggle.checked = false;
-				privacyModeToggle.checked = false;
-				gdprComplianceToggle.checked = false;
-				updateStatus({
-					enabled: true,
-					autoAccept: true,
-					smartMode: true,
-					cloudMode: false,
-					privacyMode: false,
-					gdprCompliance: false
-				});
-			}
-		});
-	}
+// Initialize settings controls with proper saving
+function initProperSettingsControls() {
+	const settingsElements = {
+		enabled: document.getElementById('enabled'),
+		autoAccept: document.getElementById('autoAccept'),
+		smartMode: document.getElementById('smartMode'),
+		cloudMode: document.getElementById('cloudMode'),
+		privacyMode: document.getElementById('privacyMode'),
+		gdprCompliance: document.getElementById('gdprCompliance'),
+		devMode: document.getElementById('devMode')
+	};
 	
-	// Call loadSettings function instead of inline Chrome storage call
-	loadSettings();
+	// Add change listeners to all settings controls
+	Object.keys(settingsElements).forEach(key => {
+		const element = settingsElements[key];
+		if (element) {
+			element.addEventListener('change', function() {
+				// Load current settings first
+				loadSettings().then(settings => {
+					// Update the changed setting
+					settings[key] = this.checked;
+					
+					// Save the updated settings
+					saveSettings(settings).then(() => {
+						// Display success status
+						updateStatus(settings);
+						
+						// Update UI based on settings
+						updateUIFromSettings(settings);
+						
+						// If dev mode changed, update visibility
+						if (key === 'devMode') {
+							updateDevModeUI(settings.devMode);
+						}
+						
+						// Send settings to background script
+						sendMessageToBackground({
+							action: 'settingsUpdated',
+							settings: settings
+						});
+					});
+				});
+			});
+		}
+	});
+}
 
-	// Check data collection consent status
+// Disable premium features
+function disablePremiumFeatures() {
+	// Disable premium toggle inputs
+	document.getElementById('cloudMode').disabled = true;
+	document.getElementById('privacyMode').disabled = true;
+	document.getElementById('gdprCompliance').disabled = true;
+}
+
+// Check current page for cookie dialogs and update the status
+function updateCurrentPageStatus() {
+	const statusContainer = document.getElementById('currentPageStatus');
+	if (!statusContainer) return;
+	
+	const headerDiv = statusContainer.querySelector('.detection-header');
+	const contentDiv = statusContainer.querySelector('.detection-content');
+	
+	if (headerDiv && contentDiv) {
+		// Set to loading state
+		headerDiv.textContent = 'Current Page Status';
+		contentDiv.innerHTML = '<p>Checking for cookie dialogs on this page...</p>';
+		
+		// Check for dialogs on the current page
+		sendMessageToActiveTab({ action: 'checkForCookieBoxes' })
+			.then(response => {
+				updatePageStatusUI(response);
+			})
+			.catch(error => {
+				console.error('Error checking current page:', error);
+				contentDiv.innerHTML = '<p>Error checking for cookie dialogs.</p>' +
+					'<button id="checkCookieBoxes" class="action-button">Try Again</button>';
+				
+				// Add event listener to the button
+				const checkButton = contentDiv.querySelector('#checkCookieBoxes');
+				if (checkButton) {
+					checkButton.addEventListener('click', updateCurrentPageStatus);
+				}
+			});
+	}
+}
+
+// Update the current page status UI based on response
+function updatePageStatusUI(response) {
+	const statusContainer = document.getElementById('currentPageStatus');
+	if (!statusContainer) return;
+	
+	const contentDiv = statusContainer.querySelector('.detection-content');
+	if (!contentDiv) return;
+	
+	// Clear the container
+	clearElement(contentDiv);
+	
+	// Update class based on detection result
+	if (response && response.dialogFound) {
+		statusContainer.className = 'cookie-detection-status status-success';
+		statusContainer.querySelector('.detection-header').textContent = 'Cookie Dialog Detected';
+		
+		// Create content for dialog found
+		createElement('p', null, 'A cookie consent dialog was detected on this page.', contentDiv);
+		
+		// Add action buttons
+		const actionDiv = createElement('div', { className: 'action-buttons' }, null, contentDiv);
+		
+		// Accept button
+		const acceptButton = createElement('button', { 
+			className: 'action-button',
+			style: 'margin-right: 10px;'
+		}, 'Accept Cookies', actionDiv);
+		
+		// Customize button
+		const customizeButton = createElement('button', { 
+			className: 'action-button'
+		}, 'Customize Settings', actionDiv);
+		
+		// Add event listeners
+		acceptButton.addEventListener('click', () => handleCookieAction('accept'));
+		customizeButton.addEventListener('click', () => handleCookieAction('customize'));
+		
+	} else {
+		statusContainer.className = 'cookie-detection-status status-info';
+		statusContainer.querySelector('.detection-header').textContent = 'No Cookie Dialog Detected';
+		
+		// Create content for no dialog
+		createElement('p', null, 'No cookie consent dialog was detected on this page.', contentDiv);
+		
+		// Add scan button
+		const scanButton = createElement('button', { 
+			id: 'checkCookieBoxes',
+			className: 'action-button'
+		}, 'Scan Again', contentDiv);
+		
+		// Add event listener to scan button
+		scanButton.addEventListener('click', updateCurrentPageStatus);
+	}
+}
+
+// Handle cookie action clicks (accept/customize)
+function handleCookieAction(action) {
+	sendMessageToActiveTab({ 
+		action: 'handleCookieAction',
+		cookieAction: action 
+	})
+	.then(response => {
+		if (response && response.success) {
+			alert(`Successfully performed '${action}' action on the cookie dialog.`);
+			updateCurrentPageStatus(); // Check again to update UI
+		} else {
+			alert(`Failed to perform '${action}' action. The dialog may have changed or been removed.`);
+		}
+	})
+	.catch(error => {
+		console.error(`Error performing ${action} action:`, error);
+		alert('An error occurred. Please try again.');
+	});
+}
+
+// Check if user has premium features
+function checkPremiumStatus() {
+	sendMessageToBackground({ action: 'checkPremiumStatus' })
+		.then(response => {
+			updateSubscriptionUI(response.isPremium);
+		})
+		.catch(error => {
+			console.error('Failed to check premium status:', error);
+			// Default to free plan if check fails
+			updateSubscriptionUI(false);
+		});
+}
+
+// Set up the account tab
+function setupAccountTab() {
+	const stripeManageButton = document.getElementById('stripeManageButton');
+	const paymentButton = document.getElementById('paymentButton');
+	const consentToggle = document.getElementById('consentToggle');
+	const devModeToggle = document.getElementById('devMode');
+	
+	// Set up stripe billing management button
+	stripeManageButton.addEventListener('click', () => {
+		window.open('https://billing.stripe.com/p/login/4gw8xiejm45PgJa5kk', '_blank');
+	});
+	
+	// Set up payment button
+	paymentButton.addEventListener('click', () => {
+		sendMessageToBackground({ action: 'openPaymentPage' });
+	});
+	
+	// Set up consent toggle
+	consentToggle.addEventListener('click', toggleDataCollectionConsent);
+	
+	// Set up dev mode toggle
+	devModeToggle.addEventListener('change', function() {
+		loadSettings().then(settings => {
+			settings.devMode = this.checked;
+			saveSettings(settings).then(() => {
+				updateDevModeUI(settings.devMode);
+			});
+		});
+	});
+	
+	// Initial load of consent status
 	checkDataCollectionConsent();
-	
-	// Clear notification badge when popup is opened
-	clearBadgeCount();
+}
 
-	// Save settings with localStorage fallback
-	function saveSettings() {
-		const settings = {
-			enabled: enabledToggle.checked,
-			autoAccept: autoAcceptToggle.checked,
-			smartMode: smartModeToggle.checked,
-			cloudMode: cloudModeToggle.checked,
-			privacyMode: privacyModeToggle.checked,
-			gdprCompliance: gdprComplianceToggle.checked
-		};
-		
-		// First try to save to Chrome storage
-		chrome.storage.sync.set(settings, () => {
-			updateStatus(settings);
-			
-			// Also save to localStorage as backup
-			try {
-				localStorage.setItem('ccm_settings', JSON.stringify(settings));
-			} catch (e) {
-				console.error('Error saving settings to localStorage', e);
-			}
-			
-			// Notify background script of settings change
-			chrome.runtime.sendMessage({ 
-				action: 'settingsUpdated', 
-				settings: settings 
-			});
-		}).catch(error => {
-			// If Chrome storage fails, save to localStorage only
-			console.error('Error saving to Chrome storage, using localStorage only', error);
-			try {
-				localStorage.setItem('ccm_settings', JSON.stringify(settings));
-				updateStatus(settings);
-			} catch (e) {
-				console.error('Error saving settings to localStorage', e);
-			}
-		});
+// Update subscription UI based on premium status
+function updateSubscriptionUI(isPremium) {
+	const planBadge = document.getElementById('planBadge');
+	const paymentButton = document.getElementById('paymentButton');
+	const stripeManageButton = document.getElementById('stripeManageButton');
+	
+	if (isPremium) {
+		planBadge.className = 'premium-badge';
+		planBadge.textContent = 'Premium';
+		paymentButton.style.display = 'none';
+		stripeManageButton.style.display = 'block';
+	} else {
+		planBadge.className = 'free-badge';
+		planBadge.textContent = 'Free';
+		paymentButton.style.display = 'block';
+		stripeManageButton.style.display = 'none';
 	}
+}
 
-	// Save settings when changed
-	enabledToggle.addEventListener('change', saveSettings);
-	autoAcceptToggle.addEventListener('change', saveSettings);
-	smartModeToggle.addEventListener('change', saveSettings);
-
-	// Cloud mode requires consent
-	cloudModeToggle.addEventListener('change', (event) => {
-		// If trying to enable cloud mode
-		if (cloudModeToggle.checked) {
-			// Check for consent first
-			checkConsentBeforeAction(() => {
-				// User gave consent, save settings
-				saveSettings();
-			}, () => {
-				// User declined consent, revert the toggle
-				cloudModeToggle.checked = false;
-				saveSettings();
-			});
-		} else {
-			// Just turning it off, no consent needed
-			saveSettings();
+function setupDashboardTab() {
+	// Check for cookie consent boxes on the active tab
+	document.getElementById('settings').addEventListener('click', function(event) {
+		if (event.target.id === 'checkCookieBoxes') {
+			updateCurrentPageStatus();
 		}
 	});
 	
-	// Privacy mode requires consent
-	privacyModeToggle.addEventListener('change', (event) => {
-		// If trying to enable privacy mode
-		if (privacyModeToggle.checked) {
-			// Check for consent first
-			checkConsentBeforeAction(() => {
-				// User gave consent, save settings
-				saveSettings();
-			}, () => {
-				// User declined consent, revert the toggle
-				privacyModeToggle.checked = false;
-				saveSettings();
-			});
-		} else {
-			// Just turning it off, no consent needed
-			saveSettings();
+	// Report a cookie box from the active tab
+	document.getElementById('settings').addEventListener('click', function(event) {
+		if (event.target.id === 'reportCookieBox') {
+			reportCookieBox();
 		}
 	});
-	
-	// GDPR Compliance is a premium feature
-	gdprComplianceToggle.addEventListener('change', (event) => {
-		// If trying to enable GDPR Compliance
-		if (gdprComplianceToggle.checked) {
-			// Show premium feature notification
-			const premiumMessage = `
-GDPR Compliance is a premium feature that prioritizes "necessary cookies only" options.
+}
 
-Selecting only necessary cookies may limit website revenue from targeted advertising.
-
-Would you like to upgrade to premium to enable this feature?
-			`;
+function setupAnalyzeTab() {
+	document.getElementById('analyze').addEventListener('click', function(event) {
+		if (event.target.id === 'analyzeBtn') {
+			const sourceInput = document.getElementById('sourceInput');
+			const htmlSource = sourceInput.value.trim();
 			
-			// For now, just show a prompt. This can be replaced with a proper payment flow later
-			if (confirm(premiumMessage)) {
-				// Placeholder for premium upgrade flow
-				alert('Premium upgrade feature coming soon! For now, we\'ll enable it for you to try.');
-				saveSettings();
+			if (htmlSource) {
+				const result = analyzeDialogSource(htmlSource);
+				displayAnalysisResults(result);
+				
+				// Show results
+				const resultsContainer = document.getElementById('analysisResults');
+				resultsContainer.style.display = 'block';
+			}
+		}
+	});
+}
+
+function displayHistoryDialogs(dialogs) {
+	const historyList = document.getElementById('historyList');
+	clearElement(historyList);
+	
+	if (dialogs.length === 0) {
+		historyList.innerHTML = '<div class="no-dialogs">No cookie dialogs have been captured yet.</div>';
+		return;
+	}
+	
+	// Sort dialogs by date, newest first
+	dialogs.sort((a, b) => {
+		return new Date(b.capturedAt) - new Date(a.capturedAt);
+	});
+	
+	// Render dialog items
+	renderDialogItems(dialogs, historyList);
+}
+
+function checkDataCollectionConsent() {
+	sendMessageToBackground({ action: 'getDataCollectionConsent' })
+		.then(response => {
+			const consentStatus = document.getElementById('consentStatus');
+			const consentToggle = document.getElementById('consentToggle');
+			
+			if (response.consent) {
+				consentStatus.textContent = 'Data collection is enabled';
+				consentToggle.textContent = 'Disable';
 			} else {
-				// User declined premium, revert the toggle
-				gdprComplianceToggle.checked = false;
-				saveSettings();
+				consentStatus.textContent = 'Data collection is disabled';
+				consentToggle.textContent = 'Enable';
 			}
-		} else {
-			// Just turning it off, no need for premium check
-			saveSettings();
+		});
+}
+
+function toggleDataCollectionConsent() {
+	sendMessageToBackground({ action: 'getDataCollectionConsent' })
+		.then(response => {
+			const newConsentValue = !response.consent;
+			
+			// If enabling consent, show the confirmation dialog
+			if (newConsentValue) {
+				if (confirm('By enabling data collection, you agree to share anonymized information about cookie consent dialogs to help improve detection. No personal information will be collected. Do you want to proceed?')) {
+					updateConsentValue(newConsentValue);
+				}
+			} else {
+				updateConsentValue(newConsentValue);
+			}
+		});
+}
+
+function updateConsentValue(consentValue) {
+	sendMessageToBackground({ 
+		action: 'setDataCollectionConsent', 
+		consent: consentValue 
+	})
+	.then(response => {
+		if (response.success) {
+			checkDataCollectionConsent();
 		}
 	});
+}
 
-	// History filter change
-	if (historyFilter) {
-		historyFilter.addEventListener('change', () => {
-			loadAllDialogs(historyFilter.value);
-		});
-	}
+function updateStatus(settings) {
+	const statusDiv = document.getElementById('status');
+	statusDiv.style.display = 'block';
 	
-	// Clear history button
-	if (clearHistoryBtn) {
-		clearHistoryBtn.addEventListener('click', () => {
-			if (confirm('Are you sure you want to clear all dialog history?')) {
-				chrome.runtime.sendMessage({ action: 'clearDialogHistory' }, () => {
-					loadAllDialogs();
-				});
-			}
-		});
-	}
-
-	// Data collection consent button
-	if (dataCollectionConsentBtn) {
-		dataCollectionConsentBtn.addEventListener('click', toggleDataCollectionConsent);
-	}
-
-	// Dialog rating buttons
-	if (goodMatchBtn) {
-		goodMatchBtn.addEventListener('click', () => {
-			if (currentDialogId) {
-				// This was a good match
-				checkConsentBeforeAction(() => {
-					submitRating(currentDialogId, 5, true);
-				});
-			}
-		});
-	}
-	
-	if (badMatchBtn) {
-		badMatchBtn.addEventListener('click', () => {
-			if (currentDialogId) {
-				// This depends on the button text - good match or submit changes
-				const isSubmitChanges = badMatchBtn.textContent === 'Submit Changes';
-				
-				checkConsentBeforeAction(() => {
-					submitRating(currentDialogId, isSubmitChanges ? 3 : 1, false);
-				});
-			}
-		});
-	}
-	
-	// Initial check for captured dialogs
-	updateDialogCount();
-	
-	// Initial load of review tab data if it's the active tab
-	const activeTab = document.querySelector('.tab.active');
-	if (activeTab && activeTab.dataset.tab === 'review') {
-		loadAllDialogs();
-	}
-	
-	// Setup message listener for badge updates
-	chrome.runtime.onMessage.addListener((message) => {
-		if (message.action === 'dialogCaptured' || message.action === 'submissionUpdated') {
-			updateDialogCount();
-		}
-		return true;
-	});
-
-	// Analyze button click handler
-	if (analyzeBtn) {
-		analyzeBtn.addEventListener('click', () => {
-			const source = sourceInput.value.trim();
-			if (!source) {
-				alert('Please paste HTML source code first');
-				return;
-			}
-			
-			// Show loading state
-			analyzeBtn.textContent = 'Analyzing...';
-			analyzeBtn.disabled = true;
-			
-			// Clear previous results if any
-			if (analysisResults) {
-				analysisResults.style.display = 'none';
-			}
-			
-			// Add a timeout to prevent indefinite waiting
-			let responseReceived = false;
-			const timeoutId = setTimeout(() => {
-				if (!responseReceived) {
-					analyzeBtn.textContent = 'Analyze Source';
-					analyzeBtn.disabled = false;
-					alert('Analysis timed out. The content script may not be responding.');
-				}
-			}, 5000); // 5 second timeout
-			
-			// Send to content script for analysis
-			chrome.tabs.query({active: true, currentWindow: true}, (tabs) => {
-				if (tabs[0]) {
-					try {
-						chrome.tabs.sendMessage(tabs[0].id, {
-							action: 'analyzeSource',
-							source: source
-						}, (result) => {
-							responseReceived = true;
-							clearTimeout(timeoutId);
-							
-							analyzeBtn.textContent = 'Analyze Source';
-							analyzeBtn.disabled = false;
-							
-							if (chrome.runtime.lastError) {
-								console.error('Chrome runtime error:', chrome.runtime.lastError);
-								alert('Error communicating with the page: ' + chrome.runtime.lastError.message);
-								return;
-							}
-							
-							if (result && !result.error) {
-								displayAnalysisResults(result);
-							} else {
-								// Handle error
-								const errorDetails = result?.errorDetails || 'Unknown error';
-								console.error('Analysis error:', errorDetails);
-								alert('Error analyzing source: ' + errorDetails);
-							}
-						});
-					} catch (error) {
-						responseReceived = true;
-						clearTimeout(timeoutId);
-						
-						analyzeBtn.textContent = 'Analyze Source';
-						analyzeBtn.disabled = false;
-						
-						console.error('Error sending message:', error);
-						alert('Error communicating with the page: ' + error.message);
-					}
-				} else {
-					// No active tab
-					responseReceived = true;
-					clearTimeout(timeoutId);
-					
-					analyzeBtn.textContent = 'Analyze Source';
-					analyzeBtn.disabled = false;
-					alert('Cannot analyze source: No active tab');
-				}
-			});
-		});
-	}
-
-	function checkDataCollectionConsent() {
-		chrome.runtime.sendMessage({ action: 'getDataCollectionConsent' }, (response) => {
-			if (response && dataCollectionConsentStatus) {
-				if (response.consent) {
-					dataCollectionConsentStatus.textContent = 'Data collection consent: Granted';
-					dataCollectionConsentStatus.className = 'consent-status consent-granted';
-					if (dataCollectionConsentBtn) {
-						dataCollectionConsentBtn.textContent = 'Withdraw Consent';
-						dataCollectionConsentBtn.className = 'withdraw-consent';
-					}
-				} else {
-					dataCollectionConsentStatus.textContent = 'Data collection consent: Not granted';
-					dataCollectionConsentStatus.className = 'consent-status consent-not-granted';
-					if (dataCollectionConsentBtn) {
-						dataCollectionConsentBtn.textContent = 'Grant Consent';
-						dataCollectionConsentBtn.className = 'grant-consent';
-					}
-				}
-			}
-		});
-	}
-
-	function toggleDataCollectionConsent() {
-		chrome.runtime.sendMessage({ action: 'getDataCollectionConsent' }, (response) => {
-			if (response) {
-				const newConsentStatus = !response.consent;
-				chrome.runtime.sendMessage({ 
-					action: 'setDataCollectionConsent', 
-					consent: newConsentStatus 
-				}, () => {
-					checkDataCollectionConsent();
-				});
-			}
-		});
-	}
-
-	function showConsentDialog() {
-		// This function is kept for reference but no longer used on startup
-		// Instead, we use checkConsentBeforeAction for targeted consent
-		
-		const consentMessage = `
-Cookie Consent Manager would like to collect anonymised data about cookie consent banners to improve detection.
-
-This helps make the tool more effective for everyone. All personal information will be redacted before submitting your ratings to our database, ensuring your privacy.
-
-Under UK GDPR and Data Protection Act 2018, we are required to obtain your explicit consent before collecting this data.
-
-Your data will only be used to improve the extension's functionality and will not be shared with third parties.
-
-Do you consent to this data collection?
-	`;
-		
-		if (confirm(consentMessage)) {
-			chrome.runtime.sendMessage({ 
-				action: 'setDataCollectionConsent', 
-				consent: true 
-			}, () => {
-				checkDataCollectionConsent();
-			});
-			privacyModeToggle.checked = true;
+	if (settings.enabled) {
+		if (settings.autoAccept) {
+			statusDiv.textContent = 'Cookie Consent Manager is active and will automatically handle cookie dialogs for you.';
+			statusDiv.style.backgroundColor = '#e8f5e9';  // Light green
 		} else {
-			chrome.runtime.sendMessage({ 
-				action: 'setDataCollectionConsent', 
-				consent: false 
-			}, () => {
-				checkDataCollectionConsent();
-			});
+			statusDiv.textContent = 'Cookie Consent Manager is active but will not automatically accept cookies. It will still detect cookie dialogs.';
+			statusDiv.style.backgroundColor = '#fff8e1';  // Light yellow
 		}
-		
-		// Save settings and mark that we've asked
-		saveSettings();
-		chrome.storage.local.set({ initialPermissionAsked: true });
+	} else {
+		statusDiv.textContent = 'Cookie Consent Manager is currently disabled. Enable the extension to start detecting and managing cookie dialogs.';
+		statusDiv.style.backgroundColor = '#ffebee';  // Light red
 	}
+	
+	// Fade out the status message after 5 seconds
+	setTimeout(() => {
+		statusDiv.style.opacity = '0.7';
+	}, 5000);
+}
 
-	function updateStatus(settings) {
-		let statusText = 'Status: ';
-		
-		if (!settings.enabled) {
-			statusText += 'Extension disabled';
-		} else if (settings.smartMode && settings.cloudMode) {
-			statusText += 'Smart & Cloud modes active';
-			if (!settings.autoAccept) {
-				statusText += ' (capture only)';
-			}
-			if (settings.privacyMode) {
-				statusText += ' with privacy protection';
-			}
-			if (settings.gdprCompliance) {
-				statusText += ', GDPR compliant';
-			}
-		} else if (settings.smartMode) {
-			statusText += 'Smart mode active';
-			if (!settings.autoAccept) {
-				statusText += ' (capture only)';
-			}
-			if (settings.privacyMode) {
-				statusText += ' with privacy protection';
-			}
-			if (settings.gdprCompliance) {
-				statusText += ', GDPR compliant';
-			}
-		} else if (settings.cloudMode) {
-			statusText += 'Cloud mode active';
-			if (!settings.autoAccept) {
-				statusText += ' (capture only)';
-			}
-			if (settings.privacyMode) {
-				statusText += ' with privacy protection';
-			}
-			if (settings.gdprCompliance) {
-				statusText += ', GDPR compliant';
-			}
-		} else {
-			statusText += 'No active modes selected';
-		}
-		
-		statusElement.textContent = statusText;
-	}
-	
-	function updateDialogCount() {
-		// Get count from background script
-		chrome.runtime.sendMessage({ action: 'getCapturedDialogCount' }, (response) => {
-			const count = response ? response.count : 0;
-			
-			// Also check for pending submissions
-			chrome.runtime.sendMessage({ action: 'getPendingSubmissions' }, (submissionsResponse) => {
-				const pendingCount = submissionsResponse?.pendingSubmissions?.length || 0;
-				const totalCount = count + pendingCount;
-				
-				if (totalCount > 0) {
-					dialogCount.textContent = totalCount;
-					dialogCount.style.display = 'inline-block';
-				} else {
-					dialogCount.style.display = 'none';
-				}
-			});
-		});
-	}
-	
-	// Load all dialogs (captured and history combined) with localStorage fallback
-	function loadAllDialogs(filterType = 'all') {
-		// We'll allow viewing dialogs without consent since they're stored locally
-		// Get only dialog history - a unified list instead of separate capturedDialogs and history
-		chrome.runtime.sendMessage({ action: 'getDialogHistory' }, (historyResponse) => {
-			let historyDialogs = historyResponse?.history || [];
-			
-			// If no history from Chrome storage, try localStorage
-			if (!historyDialogs || historyDialogs.length === 0) {
-				try {
-					const savedHistory = localStorage.getItem('ccm_history');
-					if (savedHistory) {
-						const localData = JSON.parse(savedHistory);
-						if (localData.dialogHistory && Array.isArray(localData.dialogHistory)) {
-							historyDialogs = localData.dialogHistory;
-							console.log('Loaded dialog history from localStorage fallback');
-						}
-					}
-				} catch (e) {
-					console.error('Error loading dialog history from localStorage', e);
-				}
-			}
-			
-			let allDialogs = historyDialogs.map(dialog => ({
-				...dialog,
-				source: 'history' // All dialogs are now treated as history
-			}));
-			
-			// Apply filter if needed
-			if (filterType !== 'all') {
-				allDialogs = allDialogs.filter(dialog => dialog.buttonType === filterType);
-			}
-			
-			// Sort by most recent first
-			allDialogs.sort((a, b) => {
-				return new Date(b.capturedAt) - new Date(a.capturedAt);
-			});
-			
-			// Update the dialog count (only for unreviewed items)
-			const unreviewedCount = allDialogs.filter(d => !d.reviewed).length;
-			dialogCount.textContent = unreviewedCount;
-			dialogCount.style.display = unreviewedCount > 0 ? 'inline-block' : 'none';
-			
-			// Display the list
-			displayAllDialogs(allDialogs);
-		}).catch(error => {
-			console.error('Error getting dialog history from Chrome runtime, using localStorage fallback', error);
-			
-			// Try localStorage directly if runtime message fails
-			try {
-				const savedHistory = localStorage.getItem('ccm_history');
-				if (savedHistory) {
-					const localData = JSON.parse(savedHistory);
-					if (localData.dialogHistory && Array.isArray(localData.dialogHistory)) {
-						const historyDialogs = localData.dialogHistory;
-						
-						let allDialogs = historyDialogs.map(dialog => ({
-							...dialog,
-							source: 'history' // All dialogs are now treated as history
-						}));
-						
-						// Apply filter if needed
-						if (filterType !== 'all') {
-							allDialogs = allDialogs.filter(dialog => dialog.buttonType === filterType);
-						}
-						
-						// Sort by most recent first
-						allDialogs.sort((a, b) => {
-							return new Date(b.capturedAt) - new Date(a.capturedAt);
-						});
-						
-						// Update the dialog count (only for unreviewed items)
-						const unreviewedCount = allDialogs.filter(d => !d.reviewed).length;
-						dialogCount.textContent = unreviewedCount;
-						dialogCount.style.display = unreviewedCount > 0 ? 'inline-block' : 'none';
-						
-						// Display the list
-						displayAllDialogs(allDialogs);
-						console.log('Loaded dialog history from localStorage fallback');
-					} else {
-						displayAllDialogs([]);
-					}
-				} else {
-					// No localStorage data either
-					displayAllDialogs([]);
-				}
-			} catch (e) {
-				console.error('Error loading dialog history from localStorage', e);
-				displayAllDialogs([]);
-			}
-		});
-	}
-	
-	function displayAllDialogs(dialogs) {
-		// Clear the dialogs list
-		dialogsListElement.innerHTML = '';
-		
-		if (!dialogs || dialogs.length === 0) {
-			dialogsListElement.innerHTML = '<p class="no-dialogs">No cookie consent dialogs captured yet.</p>';
-			return;
-		}
-		
-		// Get current page URL
-		let currentPageUrl = '';
-		chrome.tabs.query({active: true, currentWindow: true}, (tabs) => {
-			if (tabs && tabs[0]) {
-				currentPageUrl = tabs[0].url;
-			}
-		});
-		
-		// Sort by date (newest first)
-		dialogs.sort((a, b) => {
-			return new Date(b.capturedAt) - new Date(a.capturedAt);
-		});
-		
-		// Create list items for each dialog
-		dialogs.forEach(dialog => {
-			// Format date to be more readable
-			const captureDate = new Date(dialog.capturedAt);
-			const formattedDate = captureDate.toLocaleString('en-GB', {
-				day: 'numeric',
-				month: 'short',
-				year: 'numeric',
-				hour: '2-digit',
-				minute: '2-digit'
-			});
-			
-			// Create the item element
-			const item = document.createElement('div');
-			item.className = 'history-item';
-			if (dialog.active) item.classList.add('active');
-			
-			// Determine if this is the current page
-			const isCurrentPage = dialog.url && currentPageUrl.includes(dialog.domain);
-			
-			// Determine if this was auto-accepted
-			const wasAutoAccepted = dialog.method && (
-				dialog.method.includes('auto') || 
-				dialog.method.includes('cloud') || 
-				dialog.method.includes('smart')
-			);
-			
-			// Simplified display
-			item.innerHTML = `
-				<div class="site-info">
-					<div class="domain">${dialog.domain}</div>
-					<div class="date">${formattedDate}</div>
-				</div>
-				<div class="indicators">
-					${isCurrentPage ? '<span class="site-indicator current-page" title="Current page"></span>' : ''}
-					${wasAutoAccepted ? '<span class="site-indicator auto-accepted" title="Auto-accepted"></span>' : ''}
-				</div>
-			`;
-			
-			item.addEventListener('click', () => {
-				// Remove active class from all items
-				dialogsListElement.querySelectorAll('.dialog-item, .history-item').forEach(el => 
-					el.classList.remove('active'));
-				
-				// Add active class to clicked item
-				item.classList.add('active');
-				
-				// Display the dialog in the details tab
-				loadDialogDetails(dialog, dialog.source === 'history');
-				
-				// Switch to the details tab
-				tabs.forEach(t => t.classList.remove('active'));
-				tabContents.forEach(tc => tc.classList.remove('active'));
-				
-				const detailsTab = document.querySelector('.tab[data-tab="details"]');
-				if (detailsTab) {
-					detailsTab.classList.add('active');
-					document.getElementById('details-tab').classList.add('active');
-				}
-			});
-			
-			dialogsListElement.appendChild(item);
-		});
-	}
-	
-	function getButtonTypeDisplayText(dialog) {
-		let buttonTypeText = 'Unknown';
-		if (dialog.buttonType) {
-			switch(dialog.buttonType) {
-				case 'accept_all': buttonTypeText = 'Accept All'; break;
-				case 'essential_only': buttonTypeText = 'Essential Only'; break;
-				case 'necessary_only': buttonTypeText = 'Necessary Only'; break;
-				case 'gdpr_necessary': buttonTypeText = 'GDPR Necessary'; break;
-				case 'decline': buttonTypeText = 'Decline'; break;
-				case 'customise': buttonTypeText = 'Customise'; break;
-				default: buttonTypeText = 'Unknown'; break;
-			}
-		}
-		return buttonTypeText;
-	}
-	
-	function loadDialogDetails(dialog, isHistory = false) {
-		// Store the current dialog
-		currentDialog = dialog;
-		currentDialogId = dialog.id;
-		
-		// Show the detail container and hide the no selection message
-		dialogDetailContainer.style.display = 'block';
-		noSelectionMessage.style.display = 'none';
-		
-		// Format button type for display
-		let buttonTypeText = getButtonTypeDisplayText(dialog);
-		
-		// Display detected elements instead of preview
-		displayDetectedElements(dialog);
-		
-		// Render the detailed information
-		renderDetailedInfo(dialog);
-		
-		// Update submission status text
-		if (isHistory) {
-			// Hide rating buttons if it's history
-			goodMatchBtn.style.display = 'none';
-			badMatchBtn.style.display = 'none';
-			submissionStatus.textContent = 'Historical record - no action needed';
-		} else {
-			goodMatchBtn.style.display = 'block';
-			badMatchBtn.style.display = 'block';
-			submissionStatus.textContent = 'Rate this match or adjust classifications and submit';
-		}
-	}
-	
-	// New function to display detected elements with classification dropdowns
-	function displayDetectedElements(dialog) {
-		const detectedElementsList = document.getElementById('detectedElementsList');
-		detectedElementsList.innerHTML = '';
-		
-		try {
-			// Create a temporary div to parse the HTML
-			const tempDiv = document.createElement('div');
-			tempDiv.innerHTML = dialog.html;
-			
-			// Extract all potential buttons
-			const buttons = tempDiv.querySelectorAll('button, a[role="button"], [type="button"], [type="submit"], input[type="submit"], [class*="button"], [class*="btn"]');
-			
-			if (buttons.length === 0) {
-				detectedElementsList.innerHTML = '<p>No interactive elements found in this dialog</p>';
-				return;
-			}
-			
-			// Button type options for the dropdown
-			const buttonTypeOptions = [
-				{ value: 'accept_all', text: 'Accept All' },
-				{ value: 'essential_only', text: 'Essential Only' },
-				{ value: 'necessary_only', text: 'Necessary Only' },
-				{ value: 'customise', text: 'Customise' },
-				{ value: 'decline', text: 'Decline' },
-				{ value: 'other', text: 'Other' },
-				{ value: 'bad_match', text: 'Bad Match' }
-			];
-			
-			// Create element row for each button found
-			buttons.forEach((button, index) => {
-				if (!button.textContent.trim() && !button.value) return; // Skip buttons with no text or value
-				
-				const buttonText = button.textContent.trim() || button.value || 'Button ' + (index + 1);
-				const elementRow = document.createElement('div');
-				elementRow.className = 'element-row';
-				
-				// Element text
-				const elementText = document.createElement('div');
-				elementText.className = 'element-text';
-				elementText.textContent = buttonText.substring(0, 60);
-				
-				// Element type selection
-				const elementTypeSelect = document.createElement('select');
-				elementTypeSelect.className = 'element-type-select';
-				elementTypeSelect.dataset.buttonIndex = index;
-				
-				// Add options to select
-				buttonTypeOptions.forEach(option => {
-					const optionEl = document.createElement('option');
-					optionEl.value = option.value;
-					optionEl.textContent = option.text;
-					elementTypeSelect.appendChild(optionEl);
-				});
-				
-				// Pre-select option based on text content (basic heuristic)
-				const buttonTextLower = buttonText.toLowerCase();
-				if (buttonTextLower.includes('accept') || buttonTextLower.includes('agree') || buttonTextLower.includes('allow')) {
-					elementTypeSelect.value = 'accept_all';
-				} else if (buttonTextLower.includes('necessary') || buttonTextLower.includes('essential')) {
-					elementTypeSelect.value = 'necessary_only';
-				} else if (buttonTextLower.includes('decline') || buttonTextLower.includes('reject')) {
-					elementTypeSelect.value = 'decline';
-				} else if (buttonTextLower.includes('settings') || buttonTextLower.includes('preferences') || buttonTextLower.includes('customise')) {
-					elementTypeSelect.value = 'customise';
-				} else {
-					elementTypeSelect.value = 'other';
-				}
-				
-				// Handle selection changes
-				elementTypeSelect.addEventListener('change', () => {
-					// If user changes any classification, change badMatchBtn to "Submit"
-					const badMatchBtn = document.getElementById('badMatchBtn');
-					const goodMatchBtn = document.getElementById('goodMatchBtn');
-					
-					badMatchBtn.textContent = 'Submit Changes';
-					goodMatchBtn.style.display = 'none';
-				});
-				
-				// Add elements to row
-				elementRow.appendChild(elementText);
-				elementRow.appendChild(elementTypeSelect);
-				detectedElementsList.appendChild(elementRow);
-			});
-			
-			// Also look for checkboxes (for options)
-			const checkboxes = tempDiv.querySelectorAll('input[type="checkbox"]');
-			if (checkboxes.length > 0) {
-				// Add section title for checkboxes
-				const checkboxTitle = document.createElement('h4');
-				checkboxTitle.textContent = 'Options';
-				checkboxTitle.style.marginTop = '15px';
-				detectedElementsList.appendChild(checkboxTitle);
-				
-				// Option type options for dropdown
-				const optionTypeOptions = [
-					{ value: 'essential', text: 'Essential' },
-					{ value: 'analytics', text: 'Analytics' },
-					{ value: 'marketing', text: 'Marketing' },
-					{ value: 'preferences', text: 'Preferences' },
-					{ value: 'privacy', text: 'Privacy' },
-					{ value: 'other', text: 'Other' },
-					{ value: 'bad_match', text: 'Bad Match' }
-				];
-				
-				// Create element row for each checkbox
-				checkboxes.forEach((checkbox, index) => {
-					// Try to find associated label
-					let labelText = '';
-					if (checkbox.id) {
-						const label = tempDiv.querySelector(`label[for="${checkbox.id}"]`);
-						if (label) labelText = label.textContent.trim();
-					}
-					
-					// If no explicit label, check parent
-					if (!labelText && checkbox.parentElement) {
-						if (checkbox.parentElement.tagName === 'LABEL') {
-							labelText = checkbox.parentElement.textContent.trim();
-						} else {
-							labelText = checkbox.parentElement.textContent.trim().substring(0, 60);
-						}
-					}
-					
-					if (!labelText) labelText = `Option ${index + 1}`;
-					
-					const elementRow = document.createElement('div');
-					elementRow.className = 'element-row';
-					
-					// Element text
-					const elementText = document.createElement('div');
-					elementText.className = 'element-text';
-					elementText.textContent = labelText.substring(0, 60);
-					
-					// Element type selection
-					const elementTypeSelect = document.createElement('select');
-					elementTypeSelect.className = 'element-type-select';
-					elementTypeSelect.dataset.optionIndex = index;
-					
-					// Add options to select
-					optionTypeOptions.forEach(option => {
-						const optionEl = document.createElement('option');
-						optionEl.value = option.value;
-						optionEl.textContent = option.text;
-						elementTypeSelect.appendChild(optionEl);
-					});
-					
-					// Pre-select option based on text content
-					const textLower = labelText.toLowerCase();
-					if (textLower.includes('necessary') || textLower.includes('essential') || textLower.includes('required')) {
-						elementTypeSelect.value = 'essential';
-					} else if (textLower.includes('analytic') || textLower.includes('statistic') || textLower.includes('measure')) {
-						elementTypeSelect.value = 'analytics';
-					} else if (textLower.includes('marketing') || textLower.includes('advertis') || textLower.includes('target')) {
-						elementTypeSelect.value = 'marketing';
-					} else if (textLower.includes('preference') || textLower.includes('functional') || textLower.includes('feature')) {
-						elementTypeSelect.value = 'preferences';
-					} else if (textLower.includes('privacy') || textLower.includes('personal') || textLower.includes('data')) {
-						elementTypeSelect.value = 'privacy';
-					} else {
-						elementTypeSelect.value = 'other';
-					}
-					
-					// Handle selection changes
-					elementTypeSelect.addEventListener('change', () => {
-						// If user changes any classification, change badMatchBtn to "Submit"
-						const badMatchBtn = document.getElementById('badMatchBtn');
-						const goodMatchBtn = document.getElementById('goodMatchBtn');
-						
-						badMatchBtn.textContent = 'Submit Changes';
-						goodMatchBtn.style.display = 'none';
-					});
-					
-					// Add elements to row
-					elementRow.appendChild(elementText);
-					elementRow.appendChild(elementTypeSelect);
-					detectedElementsList.appendChild(elementRow);
-				});
-			}
-		} catch (error) {
-			console.error('Error displaying detected elements:', error);
-			detectedElementsList.innerHTML = '<p>Error analyzing dialog elements</p>';
-		}
-	}
+function checkForCookieBoxes() {
+	updateCurrentPageStatus();
+}
 
-	function submitRating(dialogId, rating, isGoodMatch) {
-		// Collect the classifications from dropdowns
-		const elementClassifications = [];
-		const detectedElementsList = document.getElementById('detectedElementsList');
-		
-		// Get all button classifications
-		const buttonRows = detectedElementsList.querySelectorAll('.element-row');
-		buttonRows.forEach(row => {
-			const elementText = row.querySelector('.element-text').textContent;
-			const elementTypeSelect = row.querySelector('.element-type-select');
-			
-			if (elementTypeSelect) {
-				const classification = {
-					text: elementText,
-					type: elementTypeSelect.value,
-					isBadMatch: elementTypeSelect.value === 'bad_match'
-				};
-				
-				// Add whether it's a button or option
-				if (elementTypeSelect.dataset.buttonIndex) {
-					classification.elementType = 'button';
-					classification.index = elementTypeSelect.dataset.buttonIndex;
-				} else if (elementTypeSelect.dataset.optionIndex) {
-					classification.elementType = 'option';
-					classification.index = elementTypeSelect.dataset.optionIndex;
-				}
-				
-				elementClassifications.push(classification);
-			}
-		});
-		
-		// Send to content script first for sanitization
-		chrome.tabs.query({active: true, currentWindow: true}, (tabs) => {
-			if (tabs[0]) {
-				// First send to content script to sanitize
-				chrome.tabs.sendMessage(tabs[0].id, {
-					action: 'submitRating',
-					data: { 
-						dialogId, 
-						rating, 
-						isGoodMatch,
-						elementClassifications
-					}
-				}, (response) => {
-					if (response && !response.error) {
-						// Content script has sanitized and submitted the data
-						submissionStatus.textContent = 'Thanks! Your rating has been submitted.';
-						// Refresh the list after submission
-						setTimeout(() => {
-							loadAllDialogs();
-							updateDialogCount();
-						}, 1000);
-					} else {
-						// If content script not available or error, try direct submission
-						chrome.runtime.sendMessage({ 
-							action: 'submitDialogRating',
-							data: { 
-								dialogId, 
-								rating, 
-								isGoodMatch,
-								elementClassifications
-							} 
-						}, (response) => {
-							if (response && response.success) {
-								// Mark as reviewed in history
-								chrome.runtime.sendMessage({
-									action: 'markDialogAsReviewed',
-									dialogId
-								});
-								
-								submissionStatus.textContent = 'Thanks! Your rating has been submitted.';
-								// Refresh the list after submission
-								setTimeout(() => {
-									loadAllDialogs();
-									updateDialogCount();
-								}, 1000);
-							} else {
-								submissionStatus.textContent = 'Error submitting rating. Please try again.';
-							}
-						});
-					}
-				});
+function reportCookieBox() {
+	sendMessageToActiveTab({ action: 'reportCookieBox' })
+		.then(response => {
+			if (response.success) {
+				alert('Thank you for reporting this cookie dialog. Your submission helps improve detection for everyone.');
 			} else {
-				// No active tab, try direct submission
-				chrome.runtime.sendMessage({ 
-					action: 'submitDialogRating',
-					data: { 
-						dialogId, 
-						rating, 
-						isGoodMatch,
-						elementClassifications
-					} 
-				}, (response) => {
-					if (response && response.success) {
-						// Mark as reviewed in history
-						chrome.runtime.sendMessage({
-							action: 'markDialogAsReviewed',
-							dialogId
-						});
-						
-						submissionStatus.textContent = 'Thanks! Your rating has been submitted.';
-						// Refresh the list after submission
-						setTimeout(() => {
-							loadAllDialogs();
-							updateDialogCount();
-						}, 1000);
-					} else {
-						submissionStatus.textContent = 'Error submitting rating. Please try again.';
-					}
-				});
+				alert('No cookie dialog was found on this page. Try navigating to a page with a cookie consent dialog first.');
 			}
+		})
+		.catch(error => {
+			console.error('Error reporting cookie box:', error);
+			alert('An error occurred while trying to report the cookie dialog. Please try again.');
 		});
-	}
+}
 
-	// New function to clear badge count when popup is opened
-	function clearBadgeCount() {
-		// First, check if there are any real dialogs or submissions to review
-		chrome.storage.local.get(['capturedDialogs', 'pendingSubmissions'], (result) => {
-			const capturedDialogs = result.capturedDialogs || [];
-			const pendingSubmissions = result.pendingSubmissions || [];
-			
-			// Only clear badge if there are no valid dialogs or pending submissions
-			if (capturedDialogs.length === 0 && pendingSubmissions.length === 0) {
-				chrome.action.setBadgeText({ text: '' });
-			}
-		});
-	}
-
-	// Function to render the detailed info tab
-	function renderDetailedInfo(dialog) {
-		if (!detailedInfoElement || !dialog) return;
-		
-		const date = new Date(dialog.capturedAt);
-		const buttonTypeText = getButtonTypeDisplayText(dialog);
-		
-		// Extract links from the dialog HTML
-		const links = extractLinksFromHtml(dialog.html);
-		
-		// Clean up the URL for display
-		const displayUrl = dialog.url && dialog.url.length > 50 
-			? dialog.url.substring(0, 47) + '...' 
-			: dialog.url || 'Not available';
-		
-		detailedInfoElement.innerHTML = `
-			<div class="detail-section">
-				<div class="detail-item"><strong>Domain:</strong> ${dialog.domain}</div>
-				<div class="detail-item"><strong>URL:</strong> <a href="${dialog.url}" target="_blank">${displayUrl}</a></div>
-				<div class="detail-item"><strong>Button Type:</strong> ${buttonTypeText}</div>
-				<div class="detail-item"><strong>Button Text:</strong> "${dialog.buttonText || 'Not available'}"</div>
-				<div class="detail-item"><strong>Method:</strong> ${dialog.method}</div>
-				<div class="detail-item"><strong>Region:</strong> ${dialog.region || 'Not detected'}</div>
-				<div class="detail-item"><strong>Captured:</strong> ${date.toLocaleString()}</div>
-				<div class="detail-item"><strong>Reviewed:</strong> ${dialog.reviewed ? 'Yes' : 'No'}</div>
-			</div>
-			
-			${links.length > 0 ? `
-				<div class="detail-section links-section">
-					<h4>Links Found (${links.length})</h4>
-					${links.map(link => {
-						// Clean up the link text for display
-						const displayText = link.text 
-							? (link.text.length > 40 ? link.text.substring(0, 37) + '...' : link.text)
-							: (link.href.length > 40 ? link.href.substring(0, 37) + '...' : link.href);
-						
-						return `
-							<div class="link-item">
-								<a href="${link.href}" target="_blank">${displayText}</a>
-							</div>
-						`;
-					}).join('')}
-				</div>
-			` : ''}
-		`;
-	}
+/**
+ * Display analysis results from Smart Detection
+ * @param {Object} result - Analysis results object
+ */
+function displayAnalysisResults(result) {
+	// Update result fields
+	document.getElementById('detectionResult').textContent = result.isDialog ? 'Likely a cookie dialog' : 'Not likely a cookie dialog';
+	document.getElementById('cookieTermsResult').textContent = result.cookieTerms ? result.cookieTerms.join(', ') : 'None found';
+	document.getElementById('buttonsResult').textContent = result.buttons ? result.buttons.length : '0';
+	document.getElementById('acceptButtonResult').textContent = result.acceptButton ? 'Found' : 'Not found';
+	document.getElementById('necessaryButtonResult').textContent = result.necessaryButton ? 'Found' : 'Not found';
 	
-	// Helper function to extract links from HTML
-	function extractLinksFromHtml(html) {
-		const parser = new DOMParser();
-		const doc = parser.parseFromString(html, 'text/html');
-		const linkElements = doc.querySelectorAll('a[href]');
-		
-		const links = [];
-		linkElements.forEach(link => {
-			// Skip empty or javascript links
-			const href = link.getAttribute('href');
-			if (!href || href === '#' || href.startsWith('javascript:')) return;
-			
-			// Convert relative links to absolute if possible
-			let absoluteHref = href;
-			if (href.startsWith('/')) {
-				try {
-					// Try to resolve relative URLs
-					const currentUrl = window.location.origin;
-					absoluteHref = new URL(href, currentUrl).href;
-				} catch (e) {
-					// Keep original if can't resolve
-					absoluteHref = href;
-				}
-			}
-			
-			// Add to links array
-			links.push({
-				href: absoluteHref,
-				text: link.textContent.trim()
-			});
-		});
-		
-		return links;
-	}
+	// Update recommendations
+	const recommendationsList = document.getElementById('recommendationsList');
+	clearElement(recommendationsList);
 	
-	// Helper function to escape HTML
-	function escapeHtml(unsafe) {
-		return unsafe
-			.replace(/&/g, "&amp;")
-			.replace(/</g, "&lt;")
-			.replace(/>/g, "&gt;")
-			.replace(/"/g, "&quot;")
-			.replace(/'/g, "&#039;");
-	}
-
-	// Helper function to display analysis results
-	function displayAnalysisResults(result) {
-		// Show results container
-		analysisResults.style.display = 'block';
-		
-		// Format detection result with green/red highlighting
-		detectionResult.innerHTML = result.detected ? 
-			'<span style="color: #4CAF50; font-weight: bold;">Detected ✓</span>' : 
-			'<span style="color: #F44336; font-weight: bold;">Not Detected ✗</span>';
-		
-		// Format other results
-		cookieTermsResult.innerHTML = result.hasCookieTerms ? 
-			'<span style="color: #4CAF50;">Yes ✓</span>' : 
-			'<span style="color: #F44336;">No ✗</span>';
-			
-		buttonsResult.innerHTML = result.hasButtons ? 
-			'<span style="color: #4CAF50;">Yes ✓</span>' : 
-			'<span style="color: #F44336;">No ✗</span>';
-		
-		// Format accept button result - ensure we don't display "more about" links as accept buttons	
-		acceptButtonResult.innerHTML = result.hasAcceptButton ? 
-			`<span style="color: #4CAF50;">Found: "${result.acceptButtonText}" ✓</span>` : 
-			'<span style="color: #F44336;">Not Found ✗</span>';
-		
-		// Format necessary button result - prioritize "reject all" buttons
-		necessaryButtonResult.innerHTML = result.hasNecessaryButton ? 
-			`<span style="color: #4CAF50;">Found: "${result.necessaryButtonText}" ✓</span>` : 
-			'<span style="color: #F44336;">Not Found ✗</span>';
-		
-		// Display recommendations
-		recommendationsList.innerHTML = '';
-		if (result.recommendations && result.recommendations.length > 0) {
-			result.recommendations.forEach(recommendation => {
-				const li = document.createElement('li');
-				li.textContent = recommendation;
-				recommendationsList.appendChild(li);
-			});
+	if (result.isDialog) {
+		createElement('li', null, 'This appears to be a cookie consent dialog.', recommendationsList);
+		if (result.acceptButton) {
+			createElement('li', null, 'Accept button detected.', recommendationsList);
 		} else {
-			const li = document.createElement('li');
-			li.textContent = 'No recommendations needed. Smart formula works correctly for this cookie box.';
-			li.style.color = '#4CAF50';
-			recommendationsList.appendChild(li);
+			createElement('li', null, 'No accept button detected, may require more complex interaction.', recommendationsList);
 		}
+	} else {
+		createElement('li', null, 'This does not appear to be a cookie consent dialog.', recommendationsList);
+		createElement('li', null, 'Check if the HTML is complete and contains cookie-related terms.', recommendationsList);
 	}
+}
 
-	// Add this new function to check consent before performing actions that require it
-	function checkConsentBeforeAction(actionCallback, declineCallback = null) {
-		chrome.runtime.sendMessage({ action: 'getDataCollectionConsent' }, (response) => {
-			if (response && response.consent) {
-				// Consent already given, perform the action
-				actionCallback();
-			} else {
-				// No consent yet, show the dialog
-				const consentMessage = `
-Cookie Consent Manager needs permission to send anonymised data about this cookie banner to improve detection.
-
-All personal information will be redacted before submitting to our database, ensuring your privacy.
-
-Under UK GDPR and Data Protection Act 2018, we are required to obtain your explicit consent before collecting this data.
-
-Your data will only be used to improve the extension's functionality and will not be shared with third parties.
-
-Do you consent to this data collection?
-				`;
-				
-				if (confirm(consentMessage)) {
-					chrome.runtime.sendMessage({ 
-						action: 'setDataCollectionConsent', 
-						consent: true 
-					}, () => {
-						checkDataCollectionConsent();
-						// Now perform the action
-						actionCallback();
-					});
-					privacyModeToggle.checked = true;
-					saveSettings();
-				} else {
-					// User declined consent
-					chrome.runtime.sendMessage({ 
-						action: 'setDataCollectionConsent', 
-						consent: false 
-					}, () => {
-						checkDataCollectionConsent();
-						if (declineCallback) {
-							declineCallback();
-						} else {
-							alert('This feature requires data collection consent. You can grant consent later in the settings tab.');
-						}
-					});
-				}
-				
-				// Mark that we've asked (prevent repeated asking)
-				chrome.storage.local.set({ initialPermissionAsked: true });
-			}
-		});
-	}
-
-	// Action buttons in details tab
-	if (copyLinkBtn) {
-		copyLinkBtn.addEventListener('click', () => {
-			if (currentDialog && currentDialog.url) {
-				navigator.clipboard.writeText(currentDialog.url)
-					.then(() => {
-						copyLinkBtn.textContent = 'Copied!';
-						setTimeout(() => { copyLinkBtn.textContent = 'Copy Link'; }, 2000);
-					})
-					.catch(err => console.error('Could not copy text: ', err));
-			}
-		});
-	}
+/**
+ * Update the cookie detection status UI
+ */
+function updateCookieDetectionStatus(response) {
+	const statusContainer = document.getElementById('cookieDetectionStatus');
+	if (!statusContainer) return;
 	
-	if (viewSourceBtn) {
-		viewSourceBtn.addEventListener('click', () => {
-			if (currentDialog && currentDialog.html) {
-				const sourceWindow = window.open('', '_blank');
-				sourceWindow.document.write(`
-					<html>
-						<head>
-							<title>Cookie Dialog Source</title>
-							<style>
-								body { font-family: monospace; white-space: pre-wrap; padding: 20px; }
-							</style>
-						</head>
-						<body>${escapeHtml(currentDialog.html)}</body>
-					</html>
-				`);
-			}
-		});
-	}
+	// Clear existing status
+	clearElement(statusContainer);
 	
-	if (exportBtn) {
-		exportBtn.addEventListener('click', () => {
-			if (currentDialog) {
-				const exportData = JSON.stringify(currentDialog, null, 2);
-				const blob = new Blob([exportData], { type: 'application/json' });
-				const url = URL.createObjectURL(blob);
-				
-				const a = document.createElement('a');
-				a.href = url;
-				a.download = `cookie-dialog-${currentDialog.domain}-${Date.now()}.json`;
-				document.body.appendChild(a);
-				a.click();
-				document.body.removeChild(a);
-				URL.revokeObjectURL(url);
-			}
-		});
-	}
-}); 
+	// Create a cookie detection status display
+	const statusDiv = createElement('div', { className: 'cookie-detection-status status-none' }, null, statusContainer);
+	
+	// Create header
+	const headerDiv = createElement('div', { className: 'detection-header' }, null, statusDiv);
+	createElement('span', null, 'No Cookie Dialogs Detected', headerDiv);
+	
+	// Create content
+	const contentDiv = createElement('div', { className: 'detection-content' }, null, statusDiv);
+	createElement('p', null, 'Visit a website with a cookie consent dialog to test the extension.', contentDiv);
+	
+	// Add a report button
+	const reportButton = createElement('button', { 
+		id: 'reportButton',
+		className: 'action-button'
+	}, 'Check for Cookie Dialog', contentDiv);
+	
+	reportButton.addEventListener('click', checkForCookieBoxes);
+} 

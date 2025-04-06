@@ -87,7 +87,9 @@ function findAcceptButton(container) {
 		// Check if the button text includes one of the accept texts
 		if (acceptTexts.some(acceptText => text.includes(acceptText))) {
 			// Skip if it contains "settings", "preferences" or "customize"
-			if (text.includes('settings') || text.includes('preferences') || text.includes('customize')) {
+			if (text.includes('settings') || text.includes('preferences') || 
+				text.includes('customize') || text.includes('customise') || 
+				text.includes('manage') || text.includes('options')) {
 				continue;
 			}
 			return button;

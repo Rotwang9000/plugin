@@ -139,6 +139,11 @@ function clickElement(element) {
 						  element.closest('.consent-dialog') ||
 						  element.closest('[data-testid*="cookie"]');
 		
+		// Check for Twitter-style React/React Native buttons with css- and r- classes
+		const hasTwitterStyleClasses = element.className && 
+			(typeof element.className === 'string') && 
+			element.className.split(' ').some(cls => cls.startsWith('css-') || cls.startsWith('r-'));
+		
 		if (form) {
 			// Prevent the form from submitting by aggressively overriding the submit behavior
 			try {
@@ -200,8 +205,8 @@ function clickElement(element) {
 				try {
 					// Use a direct DOM event that bypasses any handlers
 					const clickEvent = new MouseEvent('click', {
-						bubbles: false,
-						cancelable: false,
+						bubbles: true,
+						cancelable: true,
 						view: window
 					});
 					
@@ -230,8 +235,11 @@ function clickElement(element) {
 				// Last resort
 				element.click();
 			}
-		} else if (isInDialog || element.tagName === 'BUTTON' || element.tagName === 'A' || 
-					element.getAttribute('role') === 'button') {
+		} else if (isInDialog || 
+				  element.tagName === 'BUTTON' || 
+				  element.tagName === 'A' || 
+				  element.getAttribute('role') === 'button' ||
+				  hasTwitterStyleClasses) {
 			try {
 				// Set a temporary event listener to prevent default actions
 				const clickHandler = (e) => {
@@ -276,15 +284,43 @@ function clickElement(element) {
 				
 				// Try to click without triggering default behavior
 				try {
-					// Approach 1: Use a direct DOM event that bypasses any handlers
-					const clickEvent = new MouseEvent('click', {
-						bubbles: false,
-						cancelable: false,
-						view: window
-					});
+					// Approach 1: Create a more comprehensive mouse event for React components
+					// Create both mousedown and mouseup events followed by click
+					const eventOptions = {
+						bubbles: true,
+						cancelable: true,
+						view: window,
+						detail: 1, // simulates single click
+						screenX: 0,
+						screenY: 0,
+						clientX: 0,
+						clientY: 0,
+						ctrlKey: false,
+						altKey: false,
+						shiftKey: false,
+						metaKey: false,
+						button: 0, // primary button (left)
+						relatedTarget: null
+					};
 					
-					// Dispatch the event directly on the element
-					element.dispatchEvent(clickEvent);
+					// Dispatch mousedown, mouseup, then click in sequence
+					element.dispatchEvent(new MouseEvent('mousedown', eventOptions));
+					element.dispatchEvent(new MouseEvent('mouseup', eventOptions));
+					element.dispatchEvent(new MouseEvent('click', eventOptions));
+					
+					// For React components, try direct activation if click didn't work
+					if (hasTwitterStyleClasses || element.getAttribute('role') === 'button') {
+						// For many React components, dispatching 'focus' first helps
+						element.dispatchEvent(new FocusEvent('focus', { bubbles: true }));
+						// Then try to trigger an Enter keypress which often activates buttons
+						element.dispatchEvent(new KeyboardEvent('keydown', { 
+							bubbles: true, 
+							cancelable: true,
+							key: 'Enter',
+							code: 'Enter',
+							keyCode: 13
+						}));
+					}
 				} catch (error) {
 					// Approach 2: Clone the element, click the clone, then remove it
 					try {

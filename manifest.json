@@ -28,6 +28,11 @@
 			"matches": ["<all_urls>"],
 			"js": ["dist/content.bundle.js"],
 			"run_at": "document_idle"
+		},
+		{
+			"matches": ["https://extensionpay.com/*"],
+			"js": ["node_modules/extpay/dist/ExtPay.js"],
+			"run_at": "document_start"
 		}
 	],
 	"icons": {

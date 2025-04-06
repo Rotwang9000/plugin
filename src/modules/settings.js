@@ -9,7 +9,7 @@ const defaultSettings = {
 };
 
 // Current settings cache
-let settings = {...defaultSettings};
+const settings = {...defaultSettings};
 
 // WeakMap to track elements that have been clicked
 const clickedElements = new WeakMap();
@@ -31,7 +31,7 @@ function loadSettings(callback) {
 	try {
 		chrome.storage.sync.get(defaultSettings, (loadedSettings) => {
 			try {
-				settings = loadedSettings;
+				Object.assign(settings, loadedSettings);
 				if (callback && typeof callback === 'function') {
 					callback(settings);
 				}
@@ -54,11 +54,11 @@ function loadFromLocalStorage(callback) {
 	try {
 		const savedSettings = localStorage.getItem('ccm_settings');
 		if (savedSettings) {
-			settings = JSON.parse(savedSettings);
+			Object.assign(settings, JSON.parse(savedSettings));
 			console.log('Loaded settings from localStorage fallback');
 		} else {
 			// Use defaults if nothing in localStorage either
-			settings = {...defaultSettings};
+			Object.assign(settings, defaultSettings);
 			console.log('Using default settings (no localStorage fallback found)');
 		}
 		if (callback && typeof callback === 'function') {
@@ -67,7 +67,7 @@ function loadFromLocalStorage(callback) {
 	} catch (e) {
 		console.error('Error parsing localStorage settings', e);
 		// Use defaults in case of any error
-		settings = {...defaultSettings};
+		Object.assign(settings, defaultSettings);
 		if (callback && typeof callback === 'function') {
 			callback(settings);
 		}
@@ -179,7 +179,8 @@ function detectRegion(domain) {
 	return 'international';
 }
 
-module.exports = { 
+// Export as ES modules
+export { 
 	settings, 
 	loadSettings, 
 	isFirstVisitToday, 

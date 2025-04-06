@@ -54,7 +54,8 @@ function findAcceptButton(container) {
 		const buttonText = button.textContent.toLowerCase().trim();
 		if (buttonText.includes('settings') || buttonText.includes('preferences') || 
 			buttonText.includes('customize') || buttonText.includes('customise') || 
-			buttonText.includes('manage') || buttonText.includes('more about')) {
+			buttonText.includes('manage') || buttonText.includes('options') || 
+			buttonText.includes('more about')) {
 			continue;
 		}
 		return button;
@@ -90,7 +91,22 @@ function findAcceptButton(container) {
 	const buttons = container.querySelectorAll('button');
 	for (const button of buttons) {
 		const text = button.textContent.toLowerCase().trim();
-		if (text.includes('accept all') || text.includes('accept cookies')) {
+		// Check for most explicit accept all buttons first (highest confidence)
+		if (text.includes('accept all') || text.includes('accept cookies') || text.includes('accept & close')) {
+			return button;
+		}
+	}
+	
+	// Special case for Google-style banners with specific class patterns
+	const googleStyleButtons = container.querySelectorAll('.fc-button');
+	for (const button of googleStyleButtons) {
+		const classes = button.className.toLowerCase();
+		const text = button.textContent.toLowerCase().trim();
+		
+		// Check both class and text for Google-style banners
+		if ((classes.includes('accept') || classes.includes('consent') || 
+		     classes.includes('primary') || classes.includes('agree')) &&
+		    (text.includes('accept') || text.includes('consent') || text.includes('agree'))) {
 			return button;
 		}
 	}
@@ -105,7 +121,8 @@ function findAcceptButton(container) {
 			// Skip if it contains "settings", "preferences", "customize" or "more about"
 			if (text.includes('settings') || text.includes('preferences') || 
 				text.includes('customize') || text.includes('customise') || 
-				text.includes('manage') || text.includes('more about')) {
+				text.includes('manage') || text.includes('options') || 
+				text.includes('more about')) {
 				continue;
 			}
 			return element;
@@ -130,10 +147,24 @@ function findAcceptButton(container) {
 			// Skip if it contains "settings", etc.
 			if (text.includes('settings') || text.includes('preferences') || 
 				text.includes('customize') || text.includes('customise') || 
-				text.includes('manage')) {
+				text.includes('manage') || text.includes('options')) {
 				continue;
 			}
 			return anchor;
+		}
+	}
+	
+	// Special case for X.com style banners - look for accept links
+	const acceptLinks = container.querySelectorAll('a[id*="accept"], a[id*="agree"], a[class*="accept"], a[class*="agree"]');
+	for (const link of acceptLinks) {
+		const text = link.textContent.toLowerCase().trim();
+		if (acceptTexts.some(acceptText => text.includes(acceptText))) {
+			// Skip informational links
+			if (text.includes('learn more') || text.includes('more about') || 
+				text.includes('privacy policy') || text.includes('cookie policy')) {
+				continue;
+			}
+			return link;
 		}
 	}
 	
@@ -197,6 +228,19 @@ function findNecessaryCookiesButton(container) {
 		}
 	}
 	
+	// Special case for Google-style banners
+	const googleStyleButtons = container.querySelectorAll('.fc-button');
+	for (const button of googleStyleButtons) {
+		const classes = button.className.toLowerCase();
+		const text = button.textContent.toLowerCase().trim();
+		
+		// Check for data preferences buttons which often indicate reject or minimal options
+		if ((classes.includes('data-preferences') || classes.includes('manage-options')) ||
+		    (text.includes('manage') && text.includes('options'))) {
+			return button;
+		}
+	}
+	
 	// Then check for other necessary/reject buttons
 	for (const element of clickables) {
 		const text = element.textContent.toLowerCase().trim();
@@ -215,6 +259,13 @@ function findNecessaryCookiesButton(container) {
 		const id = element.id?.toLowerCase() || '';
 		if (id.includes('reject') || id.includes('refuse') || id.includes('decline') || 
 			id.includes('necessary-only') || id.includes('essential-only')) {
+			return element;
+		}
+		
+		// Check class for reject-related terms (often used in X.com style banners)
+		const className = element.className?.toLowerCase() || '';
+		if (className.includes('reject') || className.includes('refuse') || 
+		    className.includes('decline') || className.includes('minimal')) {
 			return element;
 		}
 	}
@@ -330,6 +381,156 @@ function analyzeBanner(bannerHtml, bannerName) {
 }
 
 /**
+ * Create a simplified diagnostic version of banner HTML
+ * This helps with analyzing complex banners by stripping out unnecessary content
+ * while preserving the structure and essential interactive elements
+ */
+function createSimplifiedBannerDiagnostic(bannerHtml, bannerName) {
+	const container = document.createElement('div');
+	container.innerHTML = bannerHtml;
+	
+	// Get document element
+	const docElement = container.firstChild;
+	
+	// Find all interactive elements
+	const buttons = docElement.querySelectorAll('button');
+	const anchors = docElement.querySelectorAll('a');
+	const inputButtons = docElement.querySelectorAll('input[type="button"], input[type="submit"]');
+	const customRoleButtons = docElement.querySelectorAll('[role="button"]');
+	
+	// Create a simplified HTML structure containing only interactive elements
+	const simplified = document.createElement('div');
+	simplified.setAttribute('data-banner-name', bannerName);
+	
+	// Add diagnostic information
+	const infoSection = document.createElement('div');
+	infoSection.className = 'banner-diagnostic-info';
+	infoSection.innerHTML = `
+		<h2>Banner Diagnostic: ${bannerName}</h2>
+		<p>Buttons: ${buttons.length}</p>
+		<p>Anchors: ${anchors.length}</p>
+		<p>Input Buttons: ${inputButtons.length}</p>
+		<p>Custom Role Buttons: ${customRoleButtons.length}</p>
+	`;
+	simplified.appendChild(infoSection);
+	
+	// Function to create a simplified version of an element
+	function simplifyElement(element, index, type) {
+		const simplified = document.createElement('div');
+		simplified.className = `simplified-${type}`;
+		simplified.setAttribute('data-original-tag', element.tagName);
+		simplified.setAttribute('data-original-id', element.id || 'none');
+		simplified.setAttribute('data-original-class', element.className || 'none');
+		simplified.setAttribute('data-index', index);
+		
+		// Preserve the text content
+		simplified.textContent = element.textContent.trim().slice(0, 100) + 
+			(element.textContent.trim().length > 100 ? '...' : '');
+		
+		return simplified;
+	}
+	
+	// Add sections for each type of interactive element
+	if (buttons.length > 0) {
+		const buttonSection = document.createElement('div');
+		buttonSection.className = 'banner-buttons';
+		buttonSection.innerHTML = '<h3>Buttons</h3>';
+		buttons.forEach((button, index) => {
+			buttonSection.appendChild(simplifyElement(button, index, 'button'));
+		});
+		simplified.appendChild(buttonSection);
+	}
+	
+	if (anchors.length > 0) {
+		const anchorSection = document.createElement('div');
+		anchorSection.className = 'banner-anchors';
+		anchorSection.innerHTML = '<h3>Anchors</h3>';
+		// Only include the first 20 anchors to avoid overwhelming the output
+		const anchorLimit = Math.min(anchors.length, 20);
+		for (let i = 0; i < anchorLimit; i++) {
+			anchorSection.appendChild(simplifyElement(anchors[i], i, 'anchor'));
+		}
+		if (anchors.length > 20) {
+			const note = document.createElement('p');
+			note.textContent = `... and ${anchors.length - 20} more anchors`;
+			anchorSection.appendChild(note);
+		}
+		simplified.appendChild(anchorSection);
+	}
+	
+	if (inputButtons.length > 0) {
+		const inputSection = document.createElement('div');
+		inputSection.className = 'banner-inputs';
+		inputSection.innerHTML = '<h3>Input Buttons</h3>';
+		inputButtons.forEach((input, index) => {
+			inputSection.appendChild(simplifyElement(input, index, 'input'));
+		});
+		simplified.appendChild(inputSection);
+	}
+	
+	if (customRoleButtons.length > 0) {
+		const roleSection = document.createElement('div');
+		roleSection.className = 'banner-role-buttons';
+		roleSection.innerHTML = '<h3>Custom Role Buttons</h3>';
+		// Only include the first 20 role buttons to avoid overwhelming the output
+		const roleLimit = Math.min(customRoleButtons.length, 20);
+		for (let i = 0; i < roleLimit; i++) {
+			roleSection.appendChild(simplifyElement(customRoleButtons[i], i, 'role-button'));
+		}
+		if (customRoleButtons.length > 20) {
+			const note = document.createElement('p');
+			note.textContent = `... and ${customRoleButtons.length - 20} more role buttons`;
+			roleSection.appendChild(note);
+		}
+		simplified.appendChild(roleSection);
+	}
+	
+	// Add the detected accept and reject buttons
+	const acceptButton = findAcceptButton(docElement);
+	const necessaryButton = findNecessaryCookiesButton(docElement);
+	
+	const detectionSection = document.createElement('div');
+	detectionSection.className = 'banner-detection-results';
+	detectionSection.innerHTML = '<h3>Detection Results</h3>';
+	
+	if (acceptButton) {
+		const acceptInfo = document.createElement('div');
+		acceptInfo.className = 'detected-accept-button';
+		acceptInfo.innerHTML = `
+			<h4>Detected Accept Button</h4>
+			<p>Tag: ${acceptButton.tagName}</p>
+			<p>ID: ${acceptButton.id || 'none'}</p>
+			<p>Class: ${acceptButton.className || 'none'}</p>
+			<p>Text: "${acceptButton.textContent.trim().slice(0, 100) + 
+				(acceptButton.textContent.trim().length > 100 ? '...' : '')}"</p>
+		`;
+		detectionSection.appendChild(acceptInfo);
+	} else {
+		detectionSection.innerHTML += '<p>No accept button detected</p>';
+	}
+	
+	if (necessaryButton) {
+		const rejectInfo = document.createElement('div');
+		rejectInfo.className = 'detected-reject-button';
+		rejectInfo.innerHTML = `
+			<h4>Detected Necessary/Reject Button</h4>
+			<p>Tag: ${necessaryButton.tagName}</p>
+			<p>ID: ${necessaryButton.id || 'none'}</p>
+			<p>Class: ${necessaryButton.className || 'none'}</p>
+			<p>Text: "${necessaryButton.textContent.trim().slice(0, 100) + 
+				(necessaryButton.textContent.trim().length > 100 ? '...' : '')}"</p>
+		`;
+		detectionSection.appendChild(rejectInfo);
+	} else {
+		detectionSection.innerHTML += '<p>No necessary/reject button detected</p>';
+	}
+	
+	simplified.appendChild(detectionSection);
+	
+	return simplified.outerHTML;
+}
+
+/**
  * Process all banner examples in the specified directory
  */
 function processBannerExamples(directoryPath) {
@@ -342,6 +543,16 @@ function processBannerExamples(directoryPath) {
 			if (file.endsWith('.html')) {
 				const filePath = path.join(directoryPath, file);
 				const bannerHtml = fs.readFileSync(filePath, 'utf8');
+				
+				// Generate simplified diagnostic for large banners
+				const fileSize = fs.statSync(filePath).size;
+				if (fileSize > 50000) { // 50KB threshold for "large" banners
+					const simplified = createSimplifiedBannerDiagnostic(bannerHtml, file);
+					fs.writeFileSync(
+						path.join(directoryPath, `${file.replace('.html', '')}-diagnostic.html`), 
+						simplified
+					);
+				}
 				
 				const result = analyzeBanner(bannerHtml, file);
 				results.push(result);
@@ -362,6 +573,12 @@ function formatReport(results) {
 	
 	results.forEach(result => {
 		report += `## ${result.bannerName}\n\n`;
+		
+		// Add link to diagnostic file for large banners if it exists
+		const diagnosticPath = path.join(__dirname, 'banner-examples', `${result.bannerName.replace('.html', '')}-diagnostic.html`);
+		if (fs.existsSync(diagnosticPath)) {
+			report += `*Large banner detected - [diagnostic view available](${diagnosticPath})*\n\n`;
+		}
 		
 		report += `### Element Counts\n`;
 		report += `- Buttons: ${result.elementCounts.buttons}\n`;
@@ -415,7 +632,82 @@ function processCmdLineExample() {
 	const args = process.argv.slice(2);
 	const htmlIndex = args.findIndex(arg => arg.startsWith('--html='));
 	const nameIndex = args.findIndex(arg => arg.startsWith('--name='));
+	const testFileIndex = args.findIndex(arg => arg.startsWith('--test-file='));
 	
+	// Process test-file argument - test a single file
+	if (testFileIndex !== -1) {
+		try {
+			const bannerFile = args[testFileIndex].substring('--test-file='.length);
+			const bannerExamplesDir = path.join(__dirname, 'banner-examples');
+			const filePath = path.join(bannerExamplesDir, bannerFile);
+			
+			if (!fs.existsSync(filePath)) {
+				console.error(`Banner file not found: ${filePath}`);
+				return;
+			}
+			
+			// Read and analyze the file
+			const bannerHtml = fs.readFileSync(filePath, 'utf8');
+			
+			// Generate simplified diagnostic for large files
+			const fileSize = fs.statSync(filePath).size;
+			if (fileSize > 50000) {
+				const simplified = createSimplifiedBannerDiagnostic(bannerHtml, bannerFile);
+				const diagnosticPath = path.join(bannerExamplesDir, `${bannerFile.replace('.html', '')}-diagnostic.html`);
+				fs.writeFileSync(diagnosticPath, simplified);
+				console.log(`Generated diagnostic file: ${diagnosticPath}`);
+			}
+			
+			// Analyze and print results
+			const result = analyzeBanner(bannerHtml, bannerFile);
+			console.log('# Banner Analysis Result\n');
+			console.log(`## ${result.bannerName}\n`);
+			
+			console.log('### Element Counts');
+			console.log(`- Buttons: ${result.elementCounts.buttons}`);
+			console.log(`- Anchors: ${result.elementCounts.anchors}`);
+			console.log(`- Input Buttons: ${result.elementCounts.inputButtons}`);
+			console.log(`- Custom Role Buttons: ${result.elementCounts.customRoleButtons}\n`);
+			
+			console.log('### Accept Button');
+			if (result.acceptButton) {
+				console.log(`- Tag: ${result.acceptButton.tag}`);
+				console.log(`- ID: ${result.acceptButton.id}`);
+				console.log(`- Class: ${result.acceptButton.className}`);
+				console.log(`- Text: "${result.acceptButton.text}"`);
+				console.log(`- Is Link: ${result.acceptButton.isLink}\n`);
+			} else {
+				console.log('- Not found\n');
+			}
+			
+			console.log('### Necessary/Reject Button');
+			if (result.necessaryButton) {
+				console.log(`- Tag: ${result.necessaryButton.tag}`);
+				console.log(`- ID: ${result.necessaryButton.id}`);
+				console.log(`- Class: ${result.necessaryButton.className}`);
+				console.log(`- Text: "${result.necessaryButton.text}"`);
+				console.log(`- Is Link: ${result.necessaryButton.isLink}\n`);
+			} else {
+				console.log('- Not found\n');
+			}
+			
+			if (result.issues.length > 0) {
+				console.log('### Issues');
+				result.issues.forEach(issue => {
+					console.log(`- ${issue}`);
+				});
+			} else {
+				console.log('### Issues\n- None detected');
+			}
+			
+			// Exit early since we're just testing a single file
+			process.exit(0);
+		} catch (error) {
+			console.error('Error processing test file:', error);
+		}
+	}
+	
+	// Process html and name arguments - add a new example
 	if (htmlIndex !== -1 && nameIndex !== -1) {
 		try {
 			// Extract HTML and name from command line

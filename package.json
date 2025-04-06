@@ -1,13 +1,15 @@
 {
 	"name": "cookie-consent-manager",
-	"version": "1.0.0",
+	"version": "0.1.0",
 	"description": "Chrome extension that automatically accepts cookie consent warnings",
 	"main": "background.js",
+	"type": "module",
 	"scripts": {
-		"test": "jest",
+		"test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config=jest.config.js",
 		"lint": "eslint .",
 		"build": "webpack --mode=production",
-		"dev": "webpack --watch --mode=development"
+		"dev": "webpack --watch --mode=development",
+		"extract-banner": "node tests/banner-extract.js"
 	},
 	"author": "",
 	"license": "MIT",
@@ -24,15 +26,21 @@
 	},
 	"jest": {
 		"testEnvironment": "jsdom",
+		"transform": {},
 		"moduleFileExtensions": [
 			"js"
 		],
 		"testMatch": [
 			"**/*.test.js"
+		],
+		"transformIgnorePatterns": [
+			"/node_modules/(?!(\\.pnpm|some-es-module-you-need-transformed))"
 		]
 	},
 	"private": true,
 	"dependencies": {
-		"ajv": "^8.17.1"
+		"ajv": "^8.17.1",
+		"extpay": "^3.1.1",
+		"jsdom": "^22.1.0"
 	}
 }

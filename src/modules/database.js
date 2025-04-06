@@ -2,7 +2,7 @@
  * Database module for storing website data, statistics and managing cookie consent history
  */
 
-const { log, objectToJson, jsonToObject } = require('./utils');
+import { log, objectToJson, jsonToObject } from './utils.js';
 
 /**
  * Save website data to Chrome storage
@@ -153,8 +153,8 @@ function clearAllData(callback) {
 	chrome.storage.local.clear(callback);
 }
 
-// Export all functions
-module.exports = {
+// Export as ES modules
+export {
 	saveWebsiteData,
 	getWebsiteData,
 	isKnownWebsite,

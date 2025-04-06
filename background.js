@@ -1,21 +1,73 @@
+// Import the required modules
+import ExtPay from 'extpay';
+import { registerMessageHandlers } from './src/api/messaging.js';
+import { 
+	getSettings, 
+	saveSettings, 
+	getDialogHistory, 
+	saveDialogToHistory, 
+	markDialogAsReviewed, 
+	dataCollectionConsent 
+} from './src/modules/storage.js';
+import { submitToCloud, checkRegionCompliance } from './src/api/cloud-api.js';
+
+// Initialize ExtPay for payment handling
+const extpay = ExtPay('omyom');
+extpay.startBackground();
+
+// Default settings
+const DEFAULT_SETTINGS = {
+	enabled: true,
+	autoAccept: true,
+	smartMode: true,
+	cloudMode: false,
+	privacyMode: false,
+	gdprCompliance: false,
+	devMode: false
+};
+
+// Track captured dialogs across tabs
+let pendingSubmissions = [];
+
+// Function to check if user has premium features available
+function checkUserPremiumStatus() {
+	return new Promise((resolve) => {
+		extpay.getUser().then(user => {
+			const isPremium = user.paid;
+			// Update storage with premium status
+			chrome.storage.sync.get(['gdprCompliance'], (settings) => {
+				// Only enable GDPR compliance if user has paid
+				if (isPremium && !settings.gdprCompliance) {
+					chrome.storage.sync.set({ gdprCompliance: true });
+				} else if (!isPremium && settings.gdprCompliance) {
+					chrome.storage.sync.set({ gdprCompliance: false });
+				}
+				resolve(isPremium);
+			});
+		}).catch(error => {
+			console.error("Error checking payment status:", error);
+			resolve(false);
+		});
+	});
+}
+
+// Listen for payment events
+extpay.onPaid.addListener(user => {
+	console.log('User has paid for premium features!');
+	// Enable premium features
+	chrome.storage.sync.set({ gdprCompliance: true });
+	// Update badge
+	updateBadge();
+});
+
 // Initialize default settings when the extension is installed
 chrome.runtime.onInstalled.addListener(() => {
 	// First check if we have settings in localStorage to restore
 	const savedSettings = localStorage.getItem('ccm_settings');
 	const savedHistory = localStorage.getItem('ccm_history');
 	
-	// Default settings to use if nothing is found
-	const defaultSettings = {
-		enabled: true,
-		autoAccept: true,
-		smartMode: true,
-		cloudMode: false, // Off by default as it requires consent
-		privacyMode: false, // Off by default as it requires consent
-		gdprCompliance: false  // OFF by default - this is a premium feature
-	};
-	
 	// Initialize with either saved settings or defaults
-	const settings = savedSettings ? JSON.parse(savedSettings) : defaultSettings;
+	const settings = savedSettings ? JSON.parse(savedSettings) : DEFAULT_SETTINGS;
 	
 	// Apply the settings to chrome.storage.sync
 	chrome.storage.sync.set(settings);
@@ -46,11 +98,15 @@ chrome.runtime.onInstalled.addListener(() => {
 	
 	// Set up alarm for regular backup of settings and history
 	chrome.alarms.create('backupSettingsAndHistory', { periodInMinutes: 10 }); // Every 10 minutes
-});
+	
+	// Set up an alarm to regularly clean up old dialogs
+	chrome.alarms.create('cleanupCapturedDialogs', { periodInMinutes: 720 }); // 12 hours
 
-// Track captured dialogs across tabs
-let capturedDialogCount = 0;
-let pendingSubmissions = [];
+	// Check premium status on startup
+	checkUserPremiumStatus().then(isPremium => {
+		console.log('Premium features ' + (isPremium ? 'enabled' : 'disabled'));
+	});
+});
 
 // Clean up visited domains older than 30 days
 function cleanupVisitedDomains() {
@@ -96,103 +152,11 @@ function backupSettingsAndHistory() {
 chrome.alarms.onAlarm.addListener((alarm) => {
 	if (alarm.name === 'cleanupVisitedDomains') {
 		cleanupVisitedDomains();
+	} else if (alarm.name === 'cleanupCapturedDialogs') {
+		cleanupCapturedDialogs();
 	} else if (alarm.name === 'backupSettingsAndHistory') {
 		backupSettingsAndHistory();
 	}
-});
-
-// Handle messages from popup.js or content.js
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-	if (message.action === 'settingsUpdated') {
-		// Broadcast settings to all tabs
-		chrome.tabs.query({}, (tabs) => {
-			tabs.forEach((tab) => {
-				chrome.tabs.sendMessage(tab.id, {
-					action: 'settingsUpdated',
-					settings: message.settings
-				}).catch(() => {
-					// Ignore errors for tabs that don't have our content script loaded
-				});
-			});
-		});
-		updateBadge();
-		
-		// Backup settings immediately when they change
-		backupSettingsAndHistory();
-		
-		sendResponse({ success: true });
-	} else if (message.action === 'dialogCaptured') {
-		// Make sure we have a dialog object and not just a count
-		if (message.dialog) {
-			// Store the captured dialog - history is now the single source of truth
-			// No need to call addDialogToHistory separately
-			storeDialogInHistory(message.dialog, sender.tab?.id);
-		}
-		sendResponse({ success: true });
-	} else if (message.action === 'getCapturedDialogCount') {
-		getCapturedDialogCount(sendResponse);
-		return true;
-	} else if (message.action === 'getDialogHistory') {
-		getDialogHistory(sendResponse);
-		return true;
-	} else if (message.action === 'clearDialogHistory') {
-		clearDialogHistory(sendResponse);
-		return true;
-	} else if (message.action === 'submitToCloud') {
-		// Handle cloud submission
-		submitToCloud(message.data);
-		return true;
-	} else if (message.action === 'getPendingSubmissions') {
-		getPendingSubmissions(sendResponse);
-		return true;
-	} else if (message.action === 'clearPendingSubmissions') {
-		clearPendingSubmissions(sendResponse);
-		return true;
-	} else if (message.action === 'recordDomainVisit') {
-		recordDomainVisit(message.domain, sendResponse);
-		return true;
-	} else if (message.action === 'checkDomainVisited') {
-		checkDomainVisited(message.domain, sendResponse);
-		return true;
-	} else if (message.action === 'getDataCollectionConsent') {
-		getDataCollectionConsent(sendResponse);
-		return true;
-	} else if (message.action === 'setDataCollectionConsent') {
-		setDataCollectionConsent(message.consent, sendResponse);
-		return true;
-	} else if (message.action === 'markDialogAsReviewed') {
-		markDialogAsReviewed(message.dialogId, sendResponse);
-		return true;
-	} else if (message.action === 'submitDialogRating') {
-		// Handle dialog rating
-		const { dialogId, rating, isGoodMatch, sanitizedDialog } = message.data;
-		
-		// If we have sanitized data from content script, use it for cloud submission
-		if (sanitizedDialog) {
-			// Submit sanitized data to cloud
-			submitToCloud({
-				url: sanitizedDialog.url, // Already sanitized
-				domain: sanitizedDialog.domain,
-				selector: sanitizedDialog.selector,
-				buttonType: sanitizedDialog.buttonType,
-				buttonText: sanitizedDialog.buttonText,
-				html: sanitizedDialog.html, // Already sanitized
-				capturedAt: sanitizedDialog.capturedAt,
-				rating,
-				isGoodMatch,
-				region: sanitizedDialog.region
-			});
-		}
-		
-		markDialogAsReviewed(dialogId);
-		sendResponse({ success: true });
-		return true;
-	} else if (message.action === 'getCapturedDialogs') {
-		getCapturedDialogs(sendResponse);
-		return true;
-	}
-	
-	return true;
 });
 
 // Record a domain visit
@@ -241,12 +205,10 @@ function checkDomainVisited(domain, sendResponse) {
 	});
 }
 
-// Combined function to store dialogs in history (replacing storeCapturedDialog and addDialogToHistory)
+// Combined function to store dialogs in history
 function storeDialogInHistory(dialog, tabId) {
 	chrome.storage.local.get(['dialogHistory'], (result) => {
 		const history = result.dialogHistory || [];
-		
-		// No longer checking for consent as local storage is essential for functionality
 		
 		// Check for duplicates (same domain, button type, and captured within 2 seconds)
 		const now = Date.now();
@@ -298,54 +260,6 @@ function storeDialogInHistory(dialog, tabId) {
 	});
 }
 
-// Get dialog history
-function getDialogHistory(sendResponse) {
-	chrome.storage.local.get('dialogHistory', (result) => {
-		sendResponse({ history: result.dialogHistory || [] });
-	});
-}
-
-// Clear dialog history
-function clearDialogHistory(sendResponse) {
-	chrome.storage.local.set({ dialogHistory: [] }, () => {
-		// Backup the cleared history
-		backupSettingsAndHistory();
-		sendResponse({ success: true });
-	});
-}
-
-// Mark a dialog as reviewed in history
-function markDialogAsReviewed(dialogId, sendResponse) {
-	chrome.storage.local.get(['dialogHistory', 'capturedDialogs'], (result) => {
-		const history = result.dialogHistory || [];
-		const dialogs = result.capturedDialogs || [];
-		
-		// Find the dialog in history and mark as reviewed
-		const updatedHistory = history.map(dialog => {
-			if (dialog.id === dialogId) {
-				return { ...dialog, reviewed: true };
-			}
-			return dialog;
-		});
-		
-		// Remove from captured dialogs that need review
-		const updatedDialogs = dialogs.filter(dialog => dialog.id !== dialogId);
-		
-		// Save both updated lists
-		chrome.storage.local.set({ 
-			dialogHistory: updatedHistory,
-			capturedDialogs: updatedDialogs 
-		}, () => {
-			updateBadge();
-			
-			// Backup the updated history
-			backupSettingsAndHistory();
-			
-			if (sendResponse) sendResponse({ success: true });
-		});
-	});
-}
-
 // Update the extension badge
 function updateBadge() {
 	chrome.storage.local.get(['capturedDialogs', 'pendingSubmissions'], (result) => {
@@ -392,76 +306,6 @@ function generateId() {
 	return Math.random().toString(36).substring(2, 15);
 }
 
-// Get data collection consent status
-function getDataCollectionConsent(sendResponse) {
-	chrome.storage.local.get('dataCollectionConsent', (result) => {
-		sendResponse({ consent: result.dataCollectionConsent || false });
-	});
-}
-
-// Set data collection consent status
-function setDataCollectionConsent(consent, sendResponse) {
-	chrome.storage.local.set({ dataCollectionConsent: consent }, () => {
-		// Backup the updated consent setting
-		backupSettingsAndHistory();
-		sendResponse({ success: true });
-	});
-}
-
-// Check for region-specific regulations
-function checkRegionCompliance(url) {
-	const domain = new URL(url).hostname;
-	
-	// Check for UK domains
-	const isUKDomain = domain.endsWith('.uk') || domain.endsWith('.co.uk') || 
-		domain.endsWith('.org.uk') || domain.endsWith('.gov.uk');
-	
-	// Check for EU domains
-	const isEUDomain = domain.endsWith('.eu') || domain.endsWith('.de') || 
-		domain.endsWith('.fr') || domain.endsWith('.it') || 
-		domain.endsWith('.es') || domain.endsWith('.nl');
-	
-	if (isUKDomain) {
-		return 'UK';
-	} else if (isEUDomain) {
-		return 'EU';
-	}
-	
-	return 'unknown';
-}
-
-function submitToCloud(data) {
-	// Add to pending submissions
-	// In a real implementation, this would be sent to a server
-	pendingSubmissions.push({
-		id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
-		...data,
-		status: 'pending',
-		submittedAt: new Date().toISOString()
-	});
-	
-	updateBadge();
-	
-	// Simulate server communication
-	// In a real implementation, this would be an actual API call
-	console.log('Submitting to cloud:', data);
-	
-	// Mock successful submission after 1 second
-	setTimeout(() => {
-		// Mark as submitted
-		const submission = pendingSubmissions.find(s => s.url === data.url && s.selector === data.selector);
-		if (submission) {
-			submission.status = 'submitted';
-		}
-		
-		// Broadcast that we have a new submission
-		chrome.runtime.sendMessage({ 
-			action: 'submissionUpdated', 
-			pendingCount: pendingSubmissions.filter(s => s.status === 'pending').length
-		});
-	}, 1000);
-}
-
 // Add this function to clean up any stale captured dialogs
 function cleanupCapturedDialogs() {
 	chrome.storage.local.get(['capturedDialogs'], (result) => {
@@ -484,23 +328,6 @@ function cleanupCapturedDialogs() {
 		}
 	});
 }
-
-// Call cleanup when extension is first loaded
-cleanupCapturedDialogs();
-
-// Set up an alarm to regularly clean up old dialogs
-chrome.alarms.create('cleanupCapturedDialogs', { periodInMinutes: 720 }); // 12 hours
-
-// Add this to the alarm listener
-chrome.alarms.onAlarm.addListener((alarm) => {
-	if (alarm.name === 'cleanupVisitedDomains') {
-		cleanupVisitedDomains();
-	} else if (alarm.name === 'cleanupCapturedDialogs') {
-		cleanupCapturedDialogs();
-	} else if (alarm.name === 'backupSettingsAndHistory') {
-		backupSettingsAndHistory();
-	}
-});
 
 // Get all captured dialogs
 function getCapturedDialogs(sendResponse) {
@@ -525,4 +352,191 @@ function updateCapturedDialogCount() {
 			chrome.action.setBadgeText({ text: '' });
 		}
 	});
-} 
+}
+
+// Handle messages using the messaging module's handler registration
+registerMessageHandlers({
+	settingsUpdated: (message) => {
+		// Broadcast settings to all tabs
+		chrome.tabs.query({}, (tabs) => {
+			tabs.forEach((tab) => {
+				chrome.tabs.sendMessage(tab.id, {
+					action: 'settingsUpdated',
+					settings: message.settings
+				}).catch(() => {
+					// Ignore errors for tabs that don't have our content script loaded
+				});
+			});
+		});
+		updateBadge();
+		
+		// Backup settings immediately when they change
+		backupSettingsAndHistory();
+		
+		return { success: true };
+	},
+	handleCookieAction: (message, sender) => {
+		// Forward the action to the content script of the active tab
+		return new Promise((resolve) => {
+			chrome.tabs.query({active: true, currentWindow: true}, (tabs) => {
+				if (tabs.length === 0) {
+					resolve({ success: false, error: 'No active tab found' });
+					return;
+				}
+				
+				chrome.tabs.sendMessage(tabs[0].id, {
+					action: 'handleCookieAction',
+					cookieAction: message.cookieAction
+				}).then(response => {
+					resolve(response || { success: true });
+				}).catch(error => {
+					console.error('Error forwarding cookie action:', error);
+					resolve({ success: false, error: error.message || 'Unknown error' });
+				});
+			});
+		});
+	},
+	dialogCaptured: (message, sender) => {
+		// Make sure we have a dialog object and not just a count
+		if (message.dialog) {
+			// Store the captured dialog
+			storeDialogInHistory(message.dialog, sender.tab?.id);
+		}
+		return { success: true };
+	},
+	getCapturedDialogCount: () => {
+		return new Promise((resolve) => {
+			getCapturedDialogCount(resolve);
+		});
+	},
+	getDialogHistory: () => {
+		return new Promise((resolve) => {
+			getDialogHistory(resolve);
+		});
+	},
+	clearDialogHistory: () => {
+		return new Promise((resolve) => {
+			clearDialogHistory(resolve);
+		});
+	},
+	submitToCloud: (message) => {
+		submitToCloud(message.data);
+		return { success: true };
+	},
+	getPendingSubmissions: () => {
+		return new Promise((resolve) => {
+			getPendingSubmissions(resolve);
+		});
+	},
+	clearPendingSubmissions: () => {
+		return new Promise((resolve) => {
+			clearPendingSubmissions(resolve);
+		});
+	},
+	recordDomainVisit: (message) => {
+		return new Promise((resolve) => {
+			recordDomainVisit(message.domain, resolve);
+		});
+	},
+	checkDomainVisited: (message) => {
+		return new Promise((resolve) => {
+			checkDomainVisited(message.domain, resolve);
+		});
+	},
+	getDataCollectionConsent: () => {
+		return new Promise((resolve) => {
+			getDataCollectionConsent(resolve);
+		});
+	},
+	setDataCollectionConsent: (message) => {
+		return new Promise((resolve) => {
+			setDataCollectionConsent(message.consent, resolve);
+		});
+	},
+	markDialogAsReviewed: (message) => {
+		return new Promise((resolve) => {
+			markDialogAsReviewed(message.dialogId, resolve);
+		});
+	},
+	getSettings: () => {
+		return new Promise((resolve) => {
+			// Get settings from storage and send them back
+			chrome.storage.sync.get({
+				enabled: true,
+				autoAccept: true,
+				smartMode: true,
+				cloudMode: false,
+				privacyMode: false,
+				gdprCompliance: false,
+				devMode: false
+			}, (settings) => {
+				resolve({ settings });
+			});
+		});
+	},
+	checkPremiumStatus: () => {
+		return new Promise((resolve) => {
+			// Check if user has premium features
+			checkUserPremiumStatus().then(isPremium => {
+				resolve({ isPremium });
+			});
+		});
+	},
+	openPaymentPage: () => {
+		// Open the payment page
+		extpay.openPaymentPage();
+		return { success: true };
+	},
+	openTrialPage: () => {
+		// Open the trial page
+		extpay.openTrialPage('7-day');
+		return { success: true };
+	},
+	submitDialogRating: (message) => {
+		// Handle dialog rating
+		const { dialogId, rating, isGoodMatch, sanitizedDialog } = message.data;
+		
+		// If we have sanitized data from content script, use it for cloud submission
+		if (sanitizedDialog) {
+			// Submit sanitized data to cloud
+			submitToCloud({
+				url: sanitizedDialog.url, // Already sanitized
+				domain: sanitizedDialog.domain,
+				selector: sanitizedDialog.selector,
+				buttonType: sanitizedDialog.buttonType,
+				buttonText: sanitizedDialog.buttonText,
+				html: sanitizedDialog.html, // Already sanitized
+				capturedAt: sanitizedDialog.capturedAt,
+				rating,
+				isGoodMatch,
+				region: sanitizedDialog.region
+			});
+		}
+		
+		markDialogAsReviewed(dialogId);
+		return { success: true };
+	},
+	getCapturedDialogs: () => {
+		return new Promise((resolve) => {
+			getCapturedDialogs(resolve);
+		});
+	}
+});
+
+// Helper functions that are not exported directly
+function getDataCollectionConsent(sendResponse) {
+	dataCollectionConsent(null, (consent) => {
+		sendResponse({ consent });
+	});
+}
+
+function setDataCollectionConsent(consent, sendResponse) {
+	dataCollectionConsent(consent, () => {
+		// Backup the updated consent setting
+		backupSettingsAndHistory();
+		sendResponse({ success: true });
+	});
+}
+
+// Clean up captured dialogs on startup
+cleanupCapturedDialogs(); 
