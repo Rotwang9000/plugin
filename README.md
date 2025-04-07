@@ -10,6 +10,9 @@ This Chrome extension helps you manage cookie consent dialogs across the web.
 - **Custom Rules**: Set per-site preferences for cookie handling
 - **History Tracking**: Keep track of sites where cookies were managed
 - **Detailed View**: Review detected cookie dialog elements and their details
+- **Externalized Selectors**: Selectors and button texts stored in JSON configuration for easy updates and localization
+- **Popup Protection**: Prevents closing the same popup multiple times in a session
+- **Performance Optimized**: Detection stops 10 seconds after page load to improve performance
 
 ## History Screen Enhancements
 
@@ -372,4 +375,111 @@ The project is currently undergoing a major refactoring to improve maintainabili
    - ⬜ Comprehensive tests for individual modules
    - ⬜ Integration tests for module interactions
 
-3. Verify all functionality works as expected 
+3. Verify all functionality works as expected
+
+## Manifest V3 Compatibility
+
+This extension is built with Manifest V3 compatibility, using ES modules for proper compatibility with modern browsers.
+
+## Development
+
+### Prerequisites
+
+- Node.js 16+
+- npm
+
+### Installation
+
+```bash
+npm install
+```
+
+### Build
+
+To build the extension:
+
+```bash
+npm run build
+```
+
+Or use the custom build script:
+
+```bash
+node build.js
+```
+
+### Development Mode
+
+To run in development mode with automatic rebuilding:
+
+```bash
+npm run dev
+```
+
+## Loading in Browser
+
+1. Go to `chrome://extensions/` in Chrome or `edge://extensions/` in Edge
+2. Enable "Developer mode"
+3. Click "Load unpacked"
+4. Select the extension directory
+
+## Architecture
+
+The extension uses the following key components:
+
+- **Background Script**: Handles extension lifecycle and manages settings
+- **Content Script**: Detects and interacts with cookie consent dialogs
+- **Popup UI**: User interface for configuration and dialog management
+
+## ES Module Support
+
+This extension uses ES modules for compatibility with Manifest V3. Key points:
+
+- Background script is loaded as a module (type="module" in manifest.json)
+- All imports/exports use ES module syntax (import/export)
+- Webpack is configured to output ES module compatible bundles
+- HTML files use `type="module"` for script tags
+
+## Permissions
+
+The extension requires the following permissions:
+
+- `storage`: To store settings and dialog history
+- `activeTab`: To access the current tab's content
+- `scripting`: To dynamically inject content scripts when needed
+- `alarms`: For scheduling cleanup tasks
+- `host_permissions`: For accessing page content on all websites
+
+## Troubleshooting
+
+If you encounter the "Receiving end does not exist" error:
+
+1. The extension uses dynamic script injection as a fallback
+2. This is implemented in the background.js with the `injectContentScript` handler
+3. The popup.js tries to inject the content script if initial communication fails
+
+## License
+
+MIT 
+
+## Recent Improvements
+
+### Popup Protection and Performance
+
+- **Session-based Dialog Tracking**: The extension now tracks which dialogs have been processed in the current session to prevent closing the same popup twice.
+- **Twitter/X Timeline Protection**: Special handling for X/Grok history windows to prevent them from being incorrectly detected as cookie dialogs.
+- **Performance Optimization**: Cookie dialog detection now stops 10 seconds after the page has fully loaded, reducing background processing and improving page performance.
+
+### Configuration Improvements
+
+- **Externalized Selectors**: All selectors and button text patterns are now stored in an external JSON file (`selectors.json`), making it easier to:
+  - Update selectors without changing the code
+  - Add support for new languages and region-specific patterns
+  - Maintain a cleaner codebase with less hardcoded values
+  - Allow for community contributions to improve detection
+
+### Improved Detection Logic
+
+- **Unique Dialog Identification**: Each dialog now has a unique identifier based on its properties, ensuring we can reliably track which ones have been processed.
+- **Content-based Button Matching**: Buttons are now matched using configurable text patterns from the JSON file, improving accuracy across different languages.
+- **Special Dialog Handling**: Added support for special dialog types that should be detected but not automatically closed. 

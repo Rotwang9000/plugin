@@ -1,7 +1,7 @@
 {
-	"name": "Cookie Consent Manager",
+	"name": "Omyom.eu Cookie Consent Manager",
 	"version": "1.0.0",
-	"description": "Automatically handles cookie consent dialogs with UK/EU GDPR compliance",
+	"description": "Automatically handles and manage cookie consent and privacy dialogs",
 	"manifest_version": 3,
 	"permissions": [
 		"storage",
@@ -13,7 +13,8 @@
 		"<all_urls>"
 	],
 	"background": {
-		"service_worker": "dist/background.bundle.js"
+		"service_worker": "dist/background.bundle.js",
+		"type": "module"
 	},
 	"action": {
 		"default_popup": "popup.html",
@@ -40,8 +41,8 @@
 		"48": "images/android-icon-48x48.png",
 		"128": "images/android-icon-144x144.png"
 	},
-	"author": "Your Company Ltd (UK)",
-	"homepage_url": "https://yourcompany.co.uk/cookie-consent-manager",
-	"privacy_policy_url": "https://yourcompany.co.uk/cookie-consent-manager/privacy",
+	"author": "Callycode Ltd",
+	"homepage_url": "https://callycode.com",
+	"privacy_policy_url": "https://callycode.com/privacy",
 	"incognito": "split"
 } 

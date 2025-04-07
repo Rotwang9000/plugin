@@ -1,0 +1,104 @@
+{
+	"cookieDialogSelectors": [
+		"#cookie-banner", 
+		".cookie-banner",
+		"#cookie-notice", 
+		".cookie-notice",
+		"#consent-banner", 
+		".consent-banner",
+		"#gdpr-banner", 
+		".gdpr-banner",
+		"#cookie-consent", 
+		".cookie-consent",
+		"[id*='cookie']",
+		"[class*='cookie']", 
+		"[id*='gdpr']",
+		"[class*='gdpr']",
+		"[id*='consent']",
+		"[class*='consent']",
+		"[id*='privacy']",
+		"[class*='privacy']",
+		".cc-window",
+		"#CybotCookiebotDialog",
+		"#onetrust-banner-sdk",
+		"#cookie-law-info-bar"
+	],
+	"dialogTypes": {
+		"xGrokHistory": {
+			"selectors": [".view-browser-history-dialog", ".timeline-dialog", ".tweet-details"]
+		}
+	},
+	"buttonTypes": {
+		"accept": {
+			"selectors": [
+				"button[id*='accept']",
+				"button[class*='accept']",
+				"a[id*='accept']",
+				"a[class*='accept']",
+				"[id*='btnaccept']",
+				"[class*='btnaccept']",
+				"[id*='agree']",
+				"[class*='agree']"
+			],
+			"textPatterns": [
+				"accept", 
+				"agree", 
+				"allow", 
+				"ok", 
+				"consent"
+			]
+		},
+		"customize": {
+			"selectors": [
+				"button[id*='settings']",
+				"button[class*='settings']",
+				"button[id*='customize']",
+				"button[class*='customize']",
+				"button[id*='preference']",
+				"button[class*='preference']",
+				"a[id*='settings']",
+				"a[class*='settings']",
+				"a[id*='customize']",
+				"a[class*='customize']",
+				"a[id*='preference']",
+				"a[class*='preference']",
+				"[id*='manage']",
+				"[class*='manage']"
+			],
+			"textPatterns": [
+				"settings", 
+				"customize", 
+				"preference", 
+				"manage", 
+				"choose", 
+				"select", 
+				"cookie"
+			]
+		},
+		"necessary": {
+			"selectors": [
+				"button[id*='necessary']",
+				"button[class*='necessary']",
+				"button[id*='essential']",
+				"button[class*='essential']",
+				"button[id*='reject']",
+				"button[class*='reject']",
+				"a[id*='necessary']",
+				"a[class*='necessary']",
+				"a[id*='essential']",
+				"a[class*='essential']",
+				"a[id*='reject']",
+				"a[class*='reject']"
+			],
+			"textPatterns": [
+				"necessary", 
+				"essential", 
+				"required", 
+				"reject", 
+				"decline", 
+				"refuse", 
+				"only"
+			]
+		}
+	}
+} 

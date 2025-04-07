@@ -12,9 +12,15 @@ let settings = {
 	enabled: true,
 	autoAccept: true,
 	smartMode: true,
-	cloudMode: true,
-	privacyMode: true,  // New privacy setting to control data collection
-	gdprCompliance: true, // UK/EU GDPR compliance mode
+	preferEssential: false, // Prefer essential cookies (basic mode)
+	buttonPreferences: {    // Advanced preferences for premium users
+		order: ["essential", "reject", "accept"],
+		enabled: {
+			essential: true,
+			reject: true,
+			accept: true
+		}
+	},
 	devMode: false
 };
 
@@ -65,6 +71,13 @@ const cloudDatabase = {
 	]
 };
 
+// Selectors will be loaded from JSON file
+let selectors = {
+	cookieDialogSelectors: [],
+	dialogTypes: {},
+	buttonTypes: {}
+};
+
 // Ensure privacy terms are defined
 const ukPrivacyTerms = [
 	'cookie', 'cookies', 'gdpr', 'data protection', 'privacy', 
@@ -76,6 +89,9 @@ const ukPrivacyTerms = [
 
 // Store captured dialogs
 let capturedDialogs = [];
+
+// Session tracking to prevent closing the same popup twice
+const processedDialogsInSession = new Set();
 
 // Domain visit tracking (for first visit detection)
 const visitedDomains = new Set();
@@ -95,6 +111,32 @@ const MIN_CLICK_INTERVAL = 1000; // 1 second
 
 // Store element references to avoid re-querying
 let dialogElements = [];
+
+// Detection timeout settings
+const DETECTION_TIMEOUT = 10000; // 10 seconds
+let detectionTimer = null;
+
+/**
+ * Load selectors from external JSON file
+ * @returns {Promise} Promise that resolves when selectors are loaded
+ */
+function loadSelectors() {
+	return fetch('selectors.json')
+		.then(response => {
+			if (!response.ok) {
+				throw new Error(`Failed to load selectors: ${response.status} ${response.statusText}`);
+			}
+			return response.json();
+		})
+		.then(data => {
+			selectors = data;
+			console.log('Selectors loaded successfully');
+		})
+		.catch(error => {
+			console.error('Error loading selectors:', error);
+			// Fall back to default selectors if loading fails
+		});
+}
 
 /**
  * Check if this is first visit to the domain today
@@ -160,9 +202,15 @@ function loadSettings(callback) {
 			enabled: true,
 			autoAccept: true,
 			smartMode: true,
-			cloudMode: false,
-			privacyMode: false,
-			gdprCompliance: false,
+			preferEssential: false,
+			buttonPreferences: {
+				order: ["essential", "reject", "accept"],
+				enabled: {
+					essential: true,
+					reject: true,
+					accept: true
+				}
+			},
 			devMode: false
 		}, function(loadedSettings) {
 			try {
@@ -197,9 +245,15 @@ function loadFromLocalStorage(callback) {
 				enabled: true,
 				autoAccept: true,
 				smartMode: true,
-				cloudMode: false,
-				privacyMode: false,
-				gdprCompliance: false,
+				preferEssential: false,
+				buttonPreferences: {
+					order: ["essential", "reject", "accept"],
+					enabled: {
+						essential: true,
+						reject: true,
+						accept: true
+					}
+				},
 				devMode: false
 			};
 			console.log('Using default settings (no localStorage fallback found)');
@@ -214,9 +268,6 @@ function loadFromLocalStorage(callback) {
 			enabled: true,
 			autoAccept: true,
 			smartMode: true,
-			cloudMode: false,
-			privacyMode: false,
-			gdprCompliance: false,
 			devMode: false
 		};
 		if (callback && typeof callback === 'function') {
@@ -266,29 +317,37 @@ function detectRegion(domain) {
  * Initialize cookie consent manager
  */
 function initCookieConsentManager() {
-	// Load settings first
-	loadSettings(settings => {
-		// Check for data collection consent
-		getDataCollectionConsent(() => {
-			// Only run if enabled
-			if (settings.enabled) {
-				// Check if cookie banner detection should run (first visit + GET request)
-				if (isFirstVisitToday() && isGetRequest()) {
-					// Run cookie banner detection modes based on settings
-					if (settings.cloudMode) {
-						runCloudMode();
+	// Load selectors first
+	loadSelectors()
+		.then(() => {
+			// Then load settings
+			loadSettings(settings => {
+				// Check for data collection consent
+				getDataCollectionConsent(() => {
+					// Only run if enabled
+					if (settings.enabled) {
+						// Check if cookie banner detection should run (first visit + GET request)
+						if (isFirstVisitToday() && isGetRequest()) {
+							// Run cookie banner detection modes based on settings
+							// Note: Cloud mode is a coming soon feature - disabled for now
+							// if (settings.cloudMode) {
+							//    runCloudMode();
+							// }
+							
+							if (settings.smartMode) {
+								runSmartMode();
+							}
+						} else {
+							// Check for banners on the page already
+							checkExistingElements();
+						}
 					}
-					
-					if (settings.smartMode) {
-						runSmartMode();
-					}
-				} else {
-					// Check for banners on the page already
-					checkExistingElements();
-				}
-			}
+				});
+			});
+		})
+		.catch(error => {
+			console.error('Error initializing cookie consent manager:', error);
 		});
-	});
 }
 
 /**
@@ -321,21 +380,9 @@ function runCloudMode() {
 						// Process the dialog
 						processCookieElement(element, pattern.selector, 'cloud');
 						
-						// If auto-accept is enabled, click the button
+						// If auto-accept is enabled, click appropriate button based on preferences
 						if (settings.autoAccept) {
-							if (settings.gdprCompliance && settings.privacyMode && pattern.necessary) {
-								// For GDPR compliance with privacy mode, look for necessary-only option
-								const necessaryButton = findNecessaryCookiesButton(element);
-								if (necessaryButton) {
-									clickElement(necessaryButton);
-								}
-							} else {
-								// Otherwise, look for accept button
-								const acceptButton = findAcceptButton(element);
-								if (acceptButton) {
-									clickElement(acceptButton);
-								}
-							}
+							clickAppropriateButton(element);
 						}
 					}
 				}
@@ -396,18 +443,44 @@ function runSmartMode() {
 	// Start observing the document with the configured parameters
 	observer.observe(document.body, { childList: true, subtree: true });
 	
-	// Stop observing after a reasonable time (30 seconds)
-	setTimeout(() => {
-		observer.disconnect();
-	}, 30000);
+	// Listen for page load complete
+	if (document.readyState === 'complete') {
+		startDetectionTimeout();
+	} else {
+		window.addEventListener('load', startDetectionTimeout);
+	}
+}
+
+/**
+ * Start detection timeout after page load
+ */
+function startDetectionTimeout() {
+	// Clear any existing timer
+	if (detectionTimer) {
+		clearTimeout(detectionTimer);
+	}
+	
+	// Set new timer to stop detection after DETECTION_TIMEOUT milliseconds
+	detectionTimer = setTimeout(() => {
+		// Stop all MutationObservers
+		const observers = document.querySelectorAll('*');
+		observers.forEach(el => {
+			if (el._observer) {
+				el._observer.disconnect();
+				delete el._observer;
+			}
+		});
+		
+		console.log(`Cookie detection stopped after ${DETECTION_TIMEOUT/1000} seconds`);
+	}, DETECTION_TIMEOUT);
 }
 
 /**
  * Check existing elements for cookie banners
  */
 function checkExistingElements() {
-	// Look for common cookie banner elements
-	const bannerSelectors = [
+	// If we have loaded selectors, use those
+	let bannerSelectors = selectors.cookieDialogSelectors || [
 		'div[class*="cookie"]',
 		'div[id*="cookie"]',
 		'div[class*="gdpr"]',
@@ -425,6 +498,23 @@ function checkExistingElements() {
 	elements.forEach(element => {
 		checkElementForCookieBanner(element);
 	});
+	
+	// Check for X/Grok history windows
+	if (selectors.dialogTypes && selectors.dialogTypes.xGrokHistory) {
+		const xGrokSelectors = selectors.dialogTypes.xGrokHistory.selectors || [];
+		const xGrokElements = document.querySelectorAll(xGrokSelectors.join(','));
+		
+		// Skip X/Grok elements if on Twitter/X domain
+		const isTwitterOrX = window.location.hostname.includes('twitter.com') || 
+							window.location.hostname.includes('x.com');
+		
+		if (!isTwitterOrX) {
+			xGrokElements.forEach(element => {
+				// Process but do not close automatically
+				processCookieElement(element, null, 'xGrok');
+			});
+		}
+	}
 }
 
 /**
@@ -441,27 +531,9 @@ function checkElementForCookieBanner(element) {
 	if (isCookieConsentDialog(element)) {
 		processCookieElement(element, null, 'smart');
 		
-		// If auto-accept is enabled, click the button
+		// If auto-accept is enabled, click the appropriate button based on preferences
 		if (settings.autoAccept) {
-			if (settings.gdprCompliance && settings.privacyMode) {
-				// For GDPR compliance with privacy mode, look for necessary-only option
-				const necessaryButton = findNecessaryCookiesButton(element);
-				if (necessaryButton) {
-					clickElement(necessaryButton);
-				} else {
-					// If no necessary button, try reject button as a fallback
-					const rejectButton = findRejectButton(element);
-					if (rejectButton) {
-						clickElement(rejectButton);
-					}
-				}
-			} else {
-				// Otherwise, look for accept button
-				const acceptButton = findAcceptButton(element);
-				if (acceptButton) {
-					clickElement(acceptButton);
-				}
-			}
+			clickAppropriateButton(element);
 		}
 	} else {
 		// Check if any child elements might be cookie banners
@@ -669,6 +741,18 @@ function sanitizeUrl(url) {
  * @param {string} method - Detection method
  */
 function processCookieElement(element, selector, method) {
+	// Generate a unique identifier for this dialog
+	const dialogId = generateDialogId(element);
+	
+	// Skip if we've already processed this exact dialog in this session
+	if (processedDialogsInSession.has(dialogId)) {
+		console.log('Dialog already processed in this session, skipping:', dialogId);
+		return;
+	}
+	
+	// Mark this dialog as processed in this session
+	processedDialogsInSession.add(dialogId);
+	
 	// Capture the dialog before taking action
 	const dialog = captureDialog(element, selector, method);
 	
@@ -682,24 +766,67 @@ function processCookieElement(element, selector, method) {
 		action: 'cookieDialogDetected',
 		dialog: dialog
 	});
+	
+	// Only auto-accept if it's not an X/Grok history window
+	if (method !== 'xGrok' && settings.autoAccept) {
+		clickAppropriateButton(element);
+	}
+}
+
+/**
+ * Generate a unique identifier for a dialog element
+ * @param {Element} element - The dialog element
+ * @returns {string} A unique identifier
+ */
+function generateDialogId(element) {
+	// Create a signature based on element properties
+	const tag = element.tagName || '';
+	const id = element.id || '';
+	const classes = Array.from(element.classList || []).join('');
+	const rect = element.getBoundingClientRect();
+	const position = `${Math.round(rect.top)}_${Math.round(rect.left)}_${Math.round(rect.width)}_${Math.round(rect.height)}`;
+	const textContent = element.textContent?.substring(0, 100) || '';
+	
+	// Create a hash of these properties
+	return `${tag}_${id}_${classes}_${position}_${textContent.replace(/\s+/g, '')}`.replace(/[^a-zA-Z0-9_]/g, '');
 }
 
 /**
  * Click an element
  * @param {Element} element - Element to click
+ * @returns {boolean} Whether the click was successful
  */
 function clickElement(element) {
 	if (!element || clickedElements.has(element)) {
-		return; // Avoid clicking the same element multiple times
+		return false; // Avoid clicking the same element multiple times
 	}
 	
 	// Mark as clicked
 	clickedElements.set(element, true);
 	
+	// Extract button text for reporting
+	const buttonText = element.textContent.trim().substring(0, 50);
+	let buttonType = 'unknown';
+	
+	// Try to determine button type
+	const text = element.textContent.toLowerCase();
+	if (text.includes('accept') || text.includes('agree') || text.includes('allow')) {
+		buttonType = 'accept';
+	} else if (text.includes('reject') || text.includes('decline') || text.includes('refuse')) {
+		buttonType = 'reject';
+	} else if (text.includes('necessary') || text.includes('essential') || text.includes('required')) {
+		buttonType = 'essential';
+	} else if (text.includes('settings') || text.includes('preferences') || text.includes('customize')) {
+		buttonType = 'customize';
+	}
+	
+	let success = false;
+	
 	// Try different click methods
 	try {
 		// Method 1: Native click
 		element.click();
+		success = true;
 	} catch (e1) {
 		try {
 			// Method 2: Synthetic click event
@@ -708,7 +835,7 @@ function clickElement(element) {
 				bubbles: true,
 				cancelable: true
 			});
-			element.dispatchEvent(event);
+			success = element.dispatchEvent(event);
 		} catch (e2) {
 			try {
 				// Method 3: Focus and enter key
@@ -721,12 +848,27 @@ function clickElement(element) {
 					bubbles: true,
 					cancelable: true
 				});
-				element.dispatchEvent(event);
+				success = element.dispatchEvent(event);
 			} catch (e3) {
 				console.error('All click methods failed', e1, e2, e3);
+				success = false;
 			}
 		}
 	}
+	
+	// If successful, notify background script
+	if (success) {
+		sendMessageToBackground({
+			action: 'buttonClicked',
+			buttonType: buttonType,
+			buttonText: buttonText,
+			timestamp: new Date().toISOString()
+		});
+		
+		console.log(`Cookie Consent Manager: Successfully clicked ${buttonType} button: "${buttonText}"`);
+	}
+	
+	return success;
 }
 
 /**
@@ -775,13 +917,103 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 		try {
 			const cookieElements = findCookieElements();
 			const dialogFound = cookieElements.length > 0;
+			let buttonClicked = null;
+			let buttonText = null;
 			
+			// If dialog found and autoAccept is enabled, try to click the appropriate button
+			if (dialogFound && settings.autoAccept) {
+				for (const element of cookieElements) {
+					// Try to click the button based on user preferences
+					let clickSuccess = false;
+					
+					// Check if we have advanced button preferences (premium users)
+					if (settings.buttonPreferences && settings.buttonPreferences.order) {
+						// Follow the preference order defined by the user
+						for (const buttonType of settings.buttonPreferences.order) {
+							// Skip disabled button types
+							if (settings.buttonPreferences.enabled[buttonType] === false) {
+								continue;
+							}
+							
+							let button = null;
+							
+							// Find the appropriate button based on type
+							switch (buttonType) {
+								case 'essential':
+									button = findNecessaryCookiesButton(element);
+									break;
+								case 'reject':
+									button = findRejectButton(element);
+									break;
+								case 'accept':
+									button = findAcceptButton(element);
+									break;
+							}
+							
+							// If button found, click it and exit
+							if (button) {
+								buttonClicked = buttonType;
+								buttonText = button.textContent.trim().substring(0, 50);
+								clickSuccess = clickElement(button);
+								if (clickSuccess) break;
+							}
+						}
+					} else if (settings.preferEssential) {
+						// Basic mode - prefer essential cookies if setting is enabled
+						const necessaryButton = findNecessaryCookiesButton(element);
+						if (necessaryButton) {
+							buttonClicked = 'essential';
+							buttonText = necessaryButton.textContent.trim().substring(0, 50);
+							clickSuccess = clickElement(necessaryButton);
+						}
+						
+						// Fallback to accept button if necessary button not found
+						if (!clickSuccess) {
+							const acceptButton = findAcceptButton(element);
+							if (acceptButton) {
+								buttonClicked = 'accept';
+								buttonText = acceptButton.textContent.trim().substring(0, 50);
+								clickSuccess = clickElement(acceptButton);
+							}
+						}
+					} else {
+						// Non-Pro mode default behavior:
+						// 1. First try accept button (accept all cookies)
+						const acceptButton = findAcceptButton(element);
+						if (acceptButton) {
+							buttonClicked = 'accept';
+							buttonText = acceptButton.textContent.trim().substring(0, 50);
+							clickSuccess = clickElement(acceptButton);
+							if (clickSuccess) break;
+						}
+						
+						// 2. If accept button not found, try necessary cookies button
+						if (!clickSuccess) {
+							const necessaryButton = findNecessaryCookiesButton(element);
+							if (necessaryButton) {
+								buttonClicked = 'essential';
+								buttonText = necessaryButton.textContent.trim().substring(0, 50);
+								clickSuccess = clickElement(necessaryButton);
+							}
+						}
+						
+						// 3. Reject buttons are not used in non-Pro mode
+					}
+					
+					if (clickSuccess) break;
+				}
+			}
+			
+			// Send response with detailed information
 			sendResponse({ 
 				dialogFound, 
 				count: cookieElements.length,
+				buttonClicked: buttonClicked,
+				buttonText: buttonText,
 				timeChecked: new Date().toISOString()
 			});
 		} catch (error) {
+			console.error('Error checking for cookie boxes:', error);
 			sendResponse({ dialogFound: false, error: error.message });
 		}
 	}
@@ -850,8 +1082,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 function findCookieElements() {
 	const cookieElements = [];
 	
-	// Find potential cookie banners by common selectors
-	const commonSelectors = [
+	// Use loaded selectors if available
+	const commonSelectors = selectors.cookieDialogSelectors || [
 		// Common selectors for cookie consent dialogs
 		'[id*="cookie"],[class*="cookie"]', 
 		'[id*="gdpr"],[class*="gdpr"]',
@@ -861,7 +1093,6 @@ function findCookieElements() {
 		'#CybotCookiebotDialog', // Common cookiebot ID
 		'#onetrust-banner-sdk', // OneTrust
 		'#cookie-law-info-bar', // Cookie Law Info
-		// Add other common selectors
 	];
 	
 	for (const selector of commonSelectors) {
@@ -881,20 +1112,93 @@ function findCookieElements() {
 }
 
 /**
+ * Click the appropriate button based on the user's preferences
+ * @param {Element} element - The cookie dialog element
+ */
+async function clickAppropriateButton(element) {
+	// Check if we have advanced button preferences (premium users)
+	if (settings.buttonPreferences && settings.buttonPreferences.order) {
+		// Follow the preference order defined by the user
+		for (const buttonType of settings.buttonPreferences.order) {
+			// Skip disabled button types
+			if (settings.buttonPreferences.enabled[buttonType] === false) {
+				continue;
+			}
+			
+			let button = null;
+			
+			// Find the appropriate button based on type
+			switch (buttonType) {
+				case 'essential':
+					button = await findNecessaryCookiesButton(element);
+					break;
+				case 'reject':
+					button = await findRejectButton(element);
+					break;
+				case 'accept':
+					button = await findAcceptButton(element);
+					break;
+			}
+			
+			// If button found, click it and exit
+			if (button) {
+				console.log(`Cookie Consent Manager: Clicking ${buttonType} button based on user preferences`);
+				clickElement(button);
+				return;
+			}
+		}
+	} else if (settings.preferEssential) {
+		// Basic mode - prefer essential cookies if setting is enabled
+		const necessaryButton = await findNecessaryCookiesButton(element);
+		if (necessaryButton) {
+			console.log('Cookie Consent Manager: Clicking essential cookies button');
+			clickElement(necessaryButton);
+			return;
+		}
+		
+		// Fallback to accept button if necessary button not found
+		const acceptButton = await findAcceptButton(element);
+		if (acceptButton) {
+			console.log('Cookie Consent Manager: No essential button found, clicking accept button');
+			clickElement(acceptButton);
+		}
+	} else {
+		// Non-Pro mode default behavior: 
+		// 1. First try to click the accept button (accept all cookies)
+		const acceptButton = await findAcceptButton(element);
+		if (acceptButton) {
+			console.log('Cookie Consent Manager: Clicking accept button (non-Pro default)');
+			clickElement(acceptButton);
+			return;
+		}
+		
+		// 2. If accept button not found, try necessary cookies button as fallback
+		const necessaryButton = await findNecessaryCookiesButton(element);
+		if (necessaryButton) {
+			console.log('Cookie Consent Manager: No accept button found, clicking essential cookies button');
+			clickElement(necessaryButton);
+			return;
+		}
+		
+		// 3. Reject buttons are not used in non-Pro mode by default
+	}
+}
+
+/**
  * Attempt to click an accept button within a cookie dialog
  * @param {Element} dialogElement - The cookie dialog element
  * @returns {boolean} True if successfully clicked an accept button
  */
-function clickAcceptButton(dialogElement) {
-	const acceptSelectors = [
-		// Common accept button selectors
-		'button[id*="accept"],button[class*="accept"]',
-		'a[id*="accept"],a[class*="accept"]',
-		'button:not([id*="reject"]):not([class*="reject"]):not([id*="settings"]):not([class*="settings"]):not([id*="customize"]):not([class*="customize"])',
-		'[id*="btnaccept"],[class*="btnaccept"]',
-		'[id*="agree"],[class*="agree"]',
-		// Add more accept button selectors
-	];
+async function clickAcceptButton(dialogElement) {
+	// Try to find the button using the button-recognition module
+	const acceptButton = await findAcceptButton(dialogElement);
+	if (acceptButton) {
+		return clickElement(acceptButton);
+	}
+	
+	// Fall back to loaded selectors if no button found
+	const acceptSelectors = selectors.buttonTypes?.accept?.selectors || [];
+	const acceptTextPatterns = selectors.buttonTypes?.accept?.textPatterns || [];
 	
 	for (const selector of acceptSelectors) {
 		try {
@@ -902,15 +1206,9 @@ function clickAcceptButton(dialogElement) {
 			for (const button of buttons) {
 				// Check if the button text contains accept-related words
 				const buttonText = button.textContent.toLowerCase();
-				if (buttonText.includes('accept') || 
-					buttonText.includes('agree') || 
-					buttonText.includes('allow') ||
-					buttonText.includes('ok') ||
-					buttonText.includes('consent')) {
-					
+				if (acceptTextPatterns.some(pattern => buttonText.includes(pattern))) {
 					// Click the button
-					button.click();
-					return true;
+					return clickElement(button);
 				}
 			}
 		} catch (e) {
@@ -926,18 +1224,16 @@ function clickAcceptButton(dialogElement) {
  * @param {Element} dialogElement - The cookie dialog element
  * @returns {boolean} True if successfully clicked a customize button
  */
-function clickCustomizeButton(dialogElement) {
-	const customizeSelectors = [
-		// Common customize/settings button selectors
-		'button[id*="settings"],button[class*="settings"]',
-		'button[id*="customize"],button[class*="customize"]',
-		'button[id*="preference"],button[class*="preference"]',
-		'a[id*="settings"],a[class*="settings"]',
-		'a[id*="customize"],a[class*="customize"]',
-		'a[id*="preference"],a[class*="preference"]',
-		'[id*="manage"],[class*="manage"]',
-		// Add more customize button selectors
-	];
+async function clickCustomizeButton(dialogElement) {
+	// Try to find the button using the button-recognition module
+	const settingsButton = await findSettingsButton(dialogElement);
+	if (settingsButton) {
+		return clickElement(settingsButton);
+	}
+	
+	// Fall back to loaded selectors if no button found
+	const customizeSelectors = selectors.buttonTypes?.customize?.selectors || [];
+	const customizeTextPatterns = selectors.buttonTypes?.customize?.textPatterns || [];
 	
 	for (const selector of customizeSelectors) {
 		try {
@@ -945,17 +1241,9 @@ function clickCustomizeButton(dialogElement) {
 			for (const button of buttons) {
 				// Check if the button text contains customize-related words
 				const buttonText = button.textContent.toLowerCase();
-				if (buttonText.includes('settings') || 
-					buttonText.includes('customize') || 
-					buttonText.includes('preference') ||
-					buttonText.includes('manage') ||
-					buttonText.includes('choose') ||
-					buttonText.includes('select') ||
-					buttonText.includes('cookie')) {
-					
+				if (customizeTextPatterns.some(pattern => buttonText.includes(pattern))) {
 					// Click the button
-					button.click();
-					return true;
+					return clickElement(button);
 				}
 			}
 		} catch (e) {

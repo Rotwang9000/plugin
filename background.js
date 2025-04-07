@@ -20,32 +20,138 @@ const DEFAULT_SETTINGS = {
 	enabled: true,
 	autoAccept: true,
 	smartMode: true,
-	cloudMode: false,
-	privacyMode: false,
-	gdprCompliance: false,
-	devMode: false
+	preferEssential: false,
+	buttonPreferences: {
+		order: ["accept", "essential", "reject"],
+		enabled: {
+			accept: true,
+			essential: true,
+			reject: false  // Disabled by default for non-premium users
+		}
+	},
+	devMode: false,
+	// Cloud features - coming soon
+	cloudMode: false
 };
 
 // Track captured dialogs across tabs
 let pendingSubmissions = [];
+
+// Track the most recent button click for reporting
+let lastClickedButton = {
+	buttonType: null,
+	buttonText: null,
+	timestamp: null,
+	tabId: null
+};
+
+/**
+ * Record information about a button click
+ * @param {Object} clickInfo - Object containing click details
+ * @param {Object} sender - Sender information
+ */
+function recordButtonClick(clickInfo, sender) {
+	// Update the last clicked button information
+	lastClickedButton = {
+		buttonType: clickInfo.buttonType || 'unknown',
+		buttonText: clickInfo.buttonText || '',
+		timestamp: clickInfo.timestamp || new Date().toISOString(),
+		tabId: sender.tab ? sender.tab.id : null,
+		url: sender.tab ? sender.tab.url : null
+	};
+	
+	// Update badge to reflect interaction
+	updateBadge();
+	
+	// Store in local storage for persistence
+	chrome.storage.local.set({ lastClickedButton });
+	
+	console.log('Cookie button clicked:', lastClickedButton);
+}
+
+/**
+ * Get the most recent button click information
+ * @param {Function} sendResponse - Function to send response
+ */
+function getLastButtonClick(sendResponse) {
+	// First check if we have info in memory
+	if (lastClickedButton.buttonType) {
+		sendResponse({ lastClick: lastClickedButton });
+		return;
+	}
+	
+	// Otherwise check storage
+	chrome.storage.local.get('lastClickedButton', (result) => {
+		if (result.lastClickedButton) {
+			// Update the in-memory cache
+			lastClickedButton = result.lastClickedButton;
+			sendResponse({ lastClick: lastClickedButton });
+		} else {
+			sendResponse({ lastClick: null });
+		}
+	});
+	
+	// Return true to indicate we'll send response asynchronously
+	return true;
+}
 
 // Function to check if user has premium features available
 function checkUserPremiumStatus() {
 	return new Promise((resolve) => {
 		extpay.getUser().then(user => {
 			const isPremium = user.paid;
-			// Update storage with premium status
-			chrome.storage.sync.get(['gdprCompliance'], (settings) => {
-				// Only enable GDPR compliance if user has paid
-				if (isPremium && !settings.gdprCompliance) {
-					chrome.storage.sync.set({ gdprCompliance: true });
-				} else if (!isPremium && settings.gdprCompliance) {
-					chrome.storage.sync.set({ gdprCompliance: false });
+			
+			// If user is premium, make sure buttonPreferences is set up properly
+			chrome.storage.sync.get(['buttonPreferences', 'preferEssential'], (settings) => {
+				const updates = {};
+				let needsUpdate = false;
+				
+				// Set up advanced button preferences for premium users if they don't exist
+				if (isPremium && !settings.buttonPreferences) {
+					updates.buttonPreferences = DEFAULT_SETTINGS.buttonPreferences;
+					needsUpdate = true;
 				}
-				resolve(isPremium);
+				
+				// For non-premium users, set a specific order that prioritizes accept
+				if (!isPremium) {
+					// Only update if we need to - avoid unnecessary writes
+					const nonPremiumButtonPrefs = {
+						order: ["accept", "essential", "reject"],
+						enabled: {
+							accept: true,     // Accept All should be enabled
+							essential: true,  // Accept Required should be enabled
+							reject: false     // Reject should be disabled for non-premium users
+						}
+					};
+					
+					// Check if we need to update the button preferences
+					if (!settings.buttonPreferences || 
+						settings.buttonPreferences.order.join() !== nonPremiumButtonPrefs.order.join() ||
+						settings.buttonPreferences.enabled.reject !== false) {
+						
+						updates.buttonPreferences = nonPremiumButtonPrefs;
+						needsUpdate = true;
+					}
+					
+					// For non-premium, also make sure preferEssential is properly set
+					if (settings.preferEssential === undefined) {
+						updates.preferEssential = false;
+						needsUpdate = true;
+					}
+				}
+				
+				if (needsUpdate) {
+					chrome.storage.sync.set(updates, () => {
+						console.log('Updated cookie preference settings based on premium status');
+						resolve(isPremium);
+					});
+				} else {
+					resolve(isPremium);
+				}
 			});
 		}).catch(error => {
 			console.error("Error checking payment status:", error);
+			// If we can't verify premium status, assume not premium
 			resolve(false);
 		});
 	});
@@ -54,50 +160,69 @@ function checkUserPremiumStatus() {
 // Listen for payment events
 extpay.onPaid.addListener(user => {
 	console.log('User has paid for premium features!');
-	// Enable premium features
-	chrome.storage.sync.set({ gdprCompliance: true });
+	// Set up premium features with default values
+	chrome.storage.sync.set({ 
+		buttonPreferences: DEFAULT_SETTINGS.buttonPreferences 
+	});
 	// Update badge
 	updateBadge();
 });
 
+/**
+ * Force check and update button preferences based on premium status
+ * This ensures non-premium users have the correct button order
+ */
+function ensureCorrectButtonPrefs() {
+	// Check premium status and update button preferences accordingly
+	checkUserPremiumStatus().then(isPremium => {
+		console.log('Enforcing button preferences for ' + (isPremium ? 'premium' : 'non-premium') + ' user');
+	});
+}
+
 // Initialize default settings when the extension is installed
 chrome.runtime.onInstalled.addListener(() => {
-	// First check if we have settings in localStorage to restore
-	const savedSettings = localStorage.getItem('ccm_settings');
-	const savedHistory = localStorage.getItem('ccm_history');
+	// Force update button preferences first
+	ensureCorrectButtonPrefs();
 	
-	// Initialize with either saved settings or defaults
-	const settings = savedSettings ? JSON.parse(savedSettings) : DEFAULT_SETTINGS;
-	
-	// Apply the settings to chrome.storage.sync
-	chrome.storage.sync.set(settings);
-	console.log('Cookie Consent Manager initialized with ' + (savedSettings ? 'saved' : 'default') + ' settings');
-	
-	// Default local storage data
-	const defaultLocalData = {
-		visitedDomains: {},
-		capturedDialogs: [],
-		dialogHistory: [],
-		pendingSubmissions: [],
-		dataCollectionConsent: false,
-		initialPermissionAsked: false
-	};
-	
-	// Initialize with either saved history or defaults
-	const localData = savedHistory ? JSON.parse(savedHistory) : defaultLocalData;
-	
-	// Apply the local data to chrome.storage.local
-	chrome.storage.local.set(localData);
-	
-	if (savedHistory) {
-		console.log('Restored history with ' + localData.dialogHistory.length + ' entries');
-	}
+	// First check if we have settings already stored to restore
+	chrome.storage.sync.get(null, (syncData) => {
+		// Apply either existing settings or defaults
+		const settings = Object.keys(syncData).length > 0 ? syncData : DEFAULT_SETTINGS;
+		
+		// Apply the settings to chrome.storage.sync if needed
+		if (Object.keys(syncData).length === 0) {
+			chrome.storage.sync.set(settings);
+			console.log('Cookie Consent Manager initialized with default settings');
+		} else {
+			console.log('Cookie Consent Manager using existing settings');
+		}
+		
+		// Default local storage data
+		const defaultLocalData = {
+			visitedDomains: {},
+			capturedDialogs: [],
+			dialogHistory: [],
+			pendingSubmissions: [],
+			dataCollectionConsent: false,
+			initialPermissionAsked: false
+		};
+		
+		// Check if we have local data
+		chrome.storage.local.get(null, (localData) => {
+			// Apply defaults if needed
+			if (Object.keys(localData).length === 0) {
+				chrome.storage.local.set(defaultLocalData);
+			} else {
+				console.log('Restored history with ' + (localData.dialogHistory?.length || 0) + ' entries');
+			}
+		});
+	});
 
 	// Set up alarm for daily cleanup of old domain records
 	chrome.alarms.create('cleanupVisitedDomains', { periodInMinutes: 1440 }); // 24 hours
 	
-	// Set up alarm for regular backup of settings and history
-	chrome.alarms.create('backupSettingsAndHistory', { periodInMinutes: 10 }); // Every 10 minutes
+	// Set up alarm for regular cleanup of settings
+	chrome.alarms.create('cleanupSettings', { periodInMinutes: 10 }); // Every 10 minutes
 	
 	// Set up an alarm to regularly clean up old dialogs
 	chrome.alarms.create('cleanupCapturedDialogs', { periodInMinutes: 720 }); // 12 hours
@@ -127,25 +252,32 @@ function cleanupVisitedDomains() {
 		// Save updated domain list
 		chrome.storage.local.set({ visitedDomains: domains });
 		console.log(`Cleaned up ${cleanupCount} old domain records`);
-		
-		// Backup after cleanup
-		backupSettingsAndHistory();
 	});
 }
 
-// Backup settings and history to localStorage
-function backupSettingsAndHistory() {
-	// Get all settings and save to localStorage
+// Clean up settings and ensure consistency
+function cleanupSettings() {
 	chrome.storage.sync.get(null, (settings) => {
-		localStorage.setItem('ccm_settings', JSON.stringify(settings));
+		// Create a deep copy of DEFAULT_SETTINGS
+		const defaultCopy = JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
+		
+		// Keep the user's button preferences if they exist
+		if (settings.buttonPreferences) {
+			defaultCopy.buttonPreferences = settings.buttonPreferences;
+		}
+		
+		// Ensure all default settings exist
+		const completeSettings = {
+			...defaultCopy,
+			...settings
+		};
+		
+		// Save back if needed
+		if (JSON.stringify(completeSettings) !== JSON.stringify(settings)) {
+			chrome.storage.sync.set(completeSettings);
+			console.log('Settings cleaned up and validated: ' + new Date().toISOString());
+		}
 	});
-	
-	// Get all local storage data and save to localStorage
-	chrome.storage.local.get(null, (data) => {
-		localStorage.setItem('ccm_history', JSON.stringify(data));
-	});
-	
-	console.log('Settings and history backed up to localStorage: ' + new Date().toISOString());
 }
 
 // Listen for the alarms
@@ -154,8 +286,8 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 		cleanupVisitedDomains();
 	} else if (alarm.name === 'cleanupCapturedDialogs') {
 		cleanupCapturedDialogs();
-	} else if (alarm.name === 'backupSettingsAndHistory') {
-		backupSettingsAndHistory();
+	} else if (alarm.name === 'cleanupSettings') {
+		cleanupSettings();
 	}
 });
 
@@ -245,9 +377,6 @@ function storeDialogInHistory(dialog, tabId) {
 			chrome.storage.local.set({ dialogHistory: history }, () => {
 				// Update badge
 				updateBadge();
-				
-				// Backup the updated history
-				backupSettingsAndHistory();
 				
 				// Notify tab if provided
 				if (tabId) {
@@ -357,6 +486,9 @@ function updateCapturedDialogCount() {
 // Handle messages using the messaging module's handler registration
 registerMessageHandlers({
 	settingsUpdated: (message) => {
+		// Ensure button preferences are correct for user type first
+		ensureCorrectButtonPrefs();
+		
 		// Broadcast settings to all tabs
 		chrome.tabs.query({}, (tabs) => {
 			tabs.forEach((tab) => {
@@ -370,10 +502,21 @@ registerMessageHandlers({
 		});
 		updateBadge();
 		
-		// Backup settings immediately when they change
-		backupSettingsAndHistory();
+		// Clean up settings immediately when they change
+		cleanupSettings();
 		
 		return { success: true };
+	},
+	buttonClicked: (message, sender) => {
+		// Record button click information
+		recordButtonClick(message, sender);
+		return { success: true };
+	},
+	getLastButtonClick: () => {
+		// Return the most recent button click information
+		return new Promise((resolve) => {
+			getLastButtonClick(resolve);
+		});
 	},
 	handleCookieAction: (message, sender) => {
 		// Forward the action to the content script of the active tab
@@ -465,10 +608,10 @@ registerMessageHandlers({
 				enabled: true,
 				autoAccept: true,
 				smartMode: true,
-				cloudMode: false,
-				privacyMode: false,
-				gdprCompliance: false,
-				devMode: false
+				preferEssential: false,
+				buttonPreferences: DEFAULT_SETTINGS.buttonPreferences,
+				devMode: false,
+				cloudMode: false
 			}, (settings) => {
 				resolve({ settings });
 			});
@@ -520,6 +663,44 @@ registerMessageHandlers({
 		return new Promise((resolve) => {
 			getCapturedDialogs(resolve);
 		});
+	},
+	
+	// Dynamic content script injection - used when regular content scripts fail to load
+	injectContentScript: (message) => {
+		return new Promise((resolve) => {
+			chrome.tabs.query({active: true, currentWindow: true}, (tabs) => {
+				if (tabs.length === 0) {
+					resolve({ success: false, error: 'No active tab found' });
+					return;
+				}
+				
+				const tabId = tabs[0].id;
+				
+				// Check if this is a supported page
+				const url = tabs[0].url || '';
+				if (url.startsWith('chrome:') || url.startsWith('chrome-extension:') || 
+					url.startsWith('devtools:') || url.startsWith('view-source:') ||
+					url.startsWith('about:')) {
+					resolve({ success: false, unsupportedTab: true });
+					return;
+				}
+				
+				// Inject the content script dynamically
+				chrome.scripting.executeScript({
+					target: { tabId },
+					files: ['dist/content.bundle.js']
+				}).then(() => {
+					console.log('Content script injected successfully');
+					resolve({ success: true });
+				}).catch(error => {
+					console.error('Failed to inject content script:', error);
+					resolve({ 
+						success: false, 
+						error: error.message || 'Failed to inject content script'
+					});
+				});
+			});
+		});
 	}
 });
 
@@ -532,11 +713,14 @@ function getDataCollectionConsent(sendResponse) {
 
 function setDataCollectionConsent(consent, sendResponse) {
 	dataCollectionConsent(consent, () => {
-		// Backup the updated consent setting
-		backupSettingsAndHistory();
+		// Update settings
+		cleanupSettings();
 		sendResponse({ success: true });
 	});
 }
 
 // Clean up captured dialogs on startup
 cleanupCapturedDialogs(); 
+
+// Ensure button preferences are set correctly on startup
+ensureCorrectButtonPrefs(); 

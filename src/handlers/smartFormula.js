@@ -1,8 +1,9 @@
 // Import required modules
-const { ukPrivacyTerms } = require('../modules/cloudDatabase.js');
-const { isElementVisible, hasHighZIndex } = require('../utils/elementInteraction.js');
-const { findAcceptButton, findNecessaryCookiesButton } = require('../utils/buttonFinders.js');
-const { processCookieElement } = require('./dialogCapture.js');
+import { ukPrivacyTerms } from '../modules/cloudDatabase.js';
+import { isElementVisible, hasHighZIndex } from '../utils/elementInteraction.js';
+import { findAcceptButton, findNecessaryCookiesButton } from '../utils/buttonFinders.js';
+import { processCookieElement } from './dialogCapture.js';
+import { settings } from '../modules/settings.js';
 
 /**
  * Check if element was added by JavaScript (not in original source)
@@ -46,9 +47,6 @@ function isJavaScriptAdded(element) {
  * @returns {boolean} Whether the element is a cookie banner
  */
 function checkElementForCookieBanner(element) {
-	// Import settings
-	const { settings } = require('../modules/settings.js');
-	
 	// Only process if enabled in smart mode
 	if (!settings.enabled || !settings.smartMode) return false;
 	
@@ -146,6 +144,8 @@ function checkExistingElements() {
  * Run the smart mode detection
  */
 function runSmartMode() {
+	console.log('Running Smart Mode detection...');
+	
 	// First check if elements already exist on page
 	checkExistingElements();
 	
@@ -252,117 +252,100 @@ function analyzeBoxSource(source) {
 				errorDetails: 'Error finding necessary button: ' + buttonError.message
 			};
 		}
-		
-		// Check if this is a form
-		const isForm = container.querySelector('form') !== null;
-		
-		// Evaluate smart formula effectiveness
-		const effective = hasCookieTerms && (hasAcceptButton || hasNecessaryButton);
-		
-		// Generate recommendations for formula improvements
-		let recommendations = [];
+
+		// Generate recommendations
+		const recommendations = [];
 		
 		if (!hasCookieTerms) {
-			recommendations.push('Add more cookie/privacy-related terms to detection patterns');
-		}
-		
-		if (!hasButtons && !isForm) {
-			recommendations.push('Improve detection of non-standard interactive elements');
-		}
-		
-		if (!hasAcceptButton && !hasNecessaryButton) {
-			recommendations.push('Enhance button detection for non-standard naming patterns');
-			// Check what text the buttons have to provide specific recommendations
-			if (buttons.length > 0) {
-				const buttonTexts = Array.from(buttons)
-					.map(b => b.textContent.trim())
-					.filter(t => t.length > 0);
-				if (buttonTexts.length > 0) {
-					recommendations.push(`Add pattern matching for button texts like: ${buttonTexts.join(', ')}`);
-				}
+			recommendations.push('This does not appear to be a cookie consent dialog. No cookie-related terms were found.');
+		} else if (!hasButtons) {
+			recommendations.push('No buttons were found in this HTML. A cookie consent dialog typically contains buttons.');
+		} else {
+			if (hasAcceptButton) {
+				const buttonText = acceptButton.textContent.trim();
+				recommendations.push(`Found accept button with text: "${buttonText}"`);
+			} else {
+				recommendations.push('No clear accept button was found. Consider modifying the HTML to include a button with "accept" or "allow" text.');
+			}
+			
+			if (hasNecessaryButton) {
+				const buttonText = necessaryButton.textContent.trim();
+				recommendations.push(`Found necessary cookies button with text: "${buttonText}"`);
+			} else {
+				recommendations.push('No clear "necessary cookies only" button was found.');
 			}
 		}
 		
-		// Check for common structures that might be missed
-		let missingStructures = [];
-		try {
-			missingStructures = identifyMissingStructures(container);
-		} catch (structureError) {
-			console.error('Error identifying missing structures:', structureError);
-			// Don't fail the whole analysis, just log the error
-		}
-		
+		// Check for missing structures
+		const missingStructures = identifyMissingStructures(container);
 		if (missingStructures.length > 0) {
-			recommendations = [...recommendations, ...missingStructures];
+			recommendations.push(...missingStructures);
 		}
 		
 		return {
-			detected: effective,
-			hasCookieTerms,
-			hasButtons,
-			hasAcceptButton,
-			hasNecessaryButton,
-			isForm,
-			acceptButtonText: acceptButton ? acceptButton.textContent.trim() : null,
-			necessaryButtonText: necessaryButton ? necessaryButton.textContent.trim() : null,
-			recommendations
+			isCookieDialog: hasCookieTerms && hasButtons,
+			cookieTermsFound: hasCookieTerms,
+			buttonsFound: hasButtons,
+			hasAcceptButton: hasAcceptButton,
+			hasNecessaryButton: hasNecessaryButton,
+			recommendations: recommendations
 		};
 	} catch (error) {
 		console.error('Error analyzing box source:', error);
 		return {
 			error: true,
-			errorDetails: error.message || 'An unknown error occurred during analysis'
+			errorDetails: error.message || 'Unknown error in analyzeBoxSource'
 		};
 	}
 }
 
 /**
- * Identifies missing patterns or structures in the smart formula
- * @param {HTMLElement} container - The parsed content container
- * @returns {Array} List of recommendations for missing patterns
+ * Identifies missing structures that would help with automated detection
+ * @param {Element} container - The HTML container to analyze
+ * @returns {Array} Array of recommendations
  */
 function identifyMissingStructures(container) {
 	const recommendations = [];
 	
-	// Check for unusual but recognizable cookie consent structures
+	// Check for semantic issues
+	const buttons = container.querySelectorAll('button, a[role="button"], [type="button"], [type="submit"], [class*="button"], [class*="btn"]');
 	
-	// 1. Check for iframe-based cookie notices
-	if (container.querySelector('iframe')) {
-		recommendations.push('Add support for iframe-based cookie notices');
+	// Check for non-semantic buttons (divs that look like buttons)
+	const divs = container.querySelectorAll('div');
+	let nonSemanticButtons = 0;
+	
+	for (const div of divs) {
+		const style = window.getComputedStyle(div);
+		// Check if div looks like a button
+		if (style.cursor === 'pointer' || 
+			div.getAttribute('onclick') || 
+			div.getAttribute('role') === 'button' || 
+			div.className.includes('button') || 
+			div.className.includes('btn')) {
+			nonSemanticButtons++;
+		}
 	}
 	
-	// 2. Check for shadow DOM usage (can only detect hints of it in source)
-	if (container.innerHTML.includes('shadowroot') || 
-		container.innerHTML.includes('shadow-root') ||
-		container.querySelector('[data-shadow]')) {
-		recommendations.push('Consider adding shadow DOM traversal for cookie notices');
+	if (buttons.length === 0 && nonSemanticButtons > 0) {
+		recommendations.push('Non-semantic buttons detected. Consider using <button> elements for better accessibility and detection.');
 	}
 	
-	// 3. Check for unusual class naming patterns
-	const classes = Array.from(container.querySelectorAll('[class]'))
-		.map(el => el.className)
-		.join(' ');
-	
-	if (classes.includes('privacy') && !classes.includes('cookie')) {
-		recommendations.push('Add more privacy-focused class detection patterns');
+	// Check for missing aria attributes
+	if (!container.querySelector('[aria-label*="cookie"], [aria-describedby], [aria-labelledby]')) {
+		recommendations.push('Missing ARIA attributes. Adding aria-label="Cookie Consent" would improve accessibility and detection.');
 	}
 	
-	if (classes.includes('gdpr') && !classes.includes('cookie')) {
-		recommendations.push('Enhance GDPR-specific element detection');
-	}
-	
-	if (classes.includes('cmp') || classes.includes('cmpbox')) {
-		recommendations.push('Add detection for CMP (Consent Management Platform) standard elements');
+	// Check for missing cookie-related classes or IDs
+	if (!container.querySelector('[class*="cookie"], [id*="cookie"], [class*="consent"], [id*="consent"], [class*="gdpr"], [id*="gdpr"]')) {
+		recommendations.push('No cookie-related classes or IDs found. Adding descriptive class names would improve detection.');
 	}
 	
 	return recommendations;
 }
 
-module.exports = {
-	checkElementForCookieBanner,
-	checkExistingElements,
+// Export all necessary functions
+export { 
 	runSmartMode,
 	analyzeBoxSource,
-	identifyMissingStructures,
-	isJavaScriptAdded
+	checkElementForCookieBanner
 }; 

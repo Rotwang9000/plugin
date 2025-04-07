@@ -1,3 +1,7 @@
+// Import required modules
+import { settings, openedByExtension, dataCollectionConsent, detectRegion } from './settings.js';
+import { clickElement } from '../utils/elementInteraction.js';
+
 // Cloud database - Contains generic patterns, no site-specific entries
 const cloudDatabase = {
 	// Common selectors that work across many sites
@@ -62,12 +66,6 @@ let capturedDialogs = [];
  * @param {string} region - The detected region
  */
 function findSimilarPatterns(region) {
-	// Import settings directly to avoid circular dependency
-	const settings = require('./settings.js').settings;
-	const { openedByExtension } = require('./settings.js');
-	const captureDialog = require('../handlers/dialogCapture.js').captureDialog;
-	const clickElement = require('../utils/elementInteraction.js').clickElement;
-	
 	// Skip auto-accepting if this tab was opened by our extension
 	if (openedByExtension && settings.autoAccept) {
 		console.log('Cookie Consent Manager: Skipping pattern-based auto-accept on tab opened by extension');
@@ -93,7 +91,24 @@ function findSimilarPatterns(region) {
 			
 			if (matchesAllPatterns) {
 				console.log('Cookie Consent Manager: Found element via signature pattern matching', classes);
-				captureDialog(element, `signature-match-${pattern.patternId}`, 'cloud-signature');
+				
+				// Dynamically import to avoid circular dependency
+				// Wrap import in try/catch to handle any potential errors
+				try {
+					import('../handlers/dialogCapture.js').then(module => {
+						try {
+							if (module && typeof module.captureDialog === 'function') {
+								module.captureDialog(element, `signature-match-${pattern.patternId}`, 'cloud-signature');
+							}
+						} catch (importError) {
+							console.error('Error with dialogCapture module:', importError);
+						}
+					}).catch(error => {
+						console.error('Error importing dialogCapture module:', error);
+					});
+				} catch (error) {
+					console.error('Error with dynamic import:', error);
+				}
 				
 				// Only click if autoAccept is enabled - with longer delay to ensure capture completes
 				if (settings.autoAccept) {
@@ -110,13 +125,6 @@ function findSimilarPatterns(region) {
  * @returns {boolean} Whether a match was found
  */
 function runCloudMode() {
-	// Import settings directly to avoid circular dependency
-	const settings = require('./settings.js').settings;
-	const { openedByExtension, dataCollectionConsent } = require('./settings.js');
-	const { detectRegion } = require('./settings.js');
-	const captureDialog = require('../handlers/dialogCapture.js').captureDialog;
-	const clickElement = require('../utils/elementInteraction.js').clickElement;
-	
 	// Check if cloud mode is active
 	if (!settings.cloudMode) {
 		return false;
@@ -152,8 +160,24 @@ function runCloudMode() {
 			const element = document.querySelector(item.selector);
 			if (element) {
 				console.log('Cookie Consent Manager: Found necessary-only button via selector', item.selector);
-				// First capture the dialog
-				captureDialog(element, item.selector, 'cloud-common-necessary');
+				
+				// Dynamically import to avoid circular dependency
+				// Wrap import in try/catch to handle any potential errors
+				try {
+					import('../handlers/dialogCapture.js').then(module => {
+						try {
+							if (module && typeof module.captureDialog === 'function') {
+								module.captureDialog(element, item.selector, 'cloud-common-necessary');
+							}
+						} catch (importError) {
+							console.error('Error with dialogCapture module:', importError);
+						}
+					}).catch(error => {
+						console.error('Error importing dialogCapture module:', error);
+					});
+				} catch (error) {
+					console.error('Error with dynamic import:', error);
+				}
 				
 				// Only click if autoAccept is enabled - with longer delay to ensure capture completes
 				if (settings.autoAccept) {
@@ -172,8 +196,24 @@ function runCloudMode() {
 		const element = document.querySelector(item.selector);
 		if (element) {
 			console.log('Cookie Consent Manager: Found element via common selector', item.selector);
-			// First capture the dialog
-			captureDialog(element, item.selector, 'cloud-common');
+			
+			// Dynamically import to avoid circular dependency
+			// Wrap import in try/catch to handle any potential errors
+			try {
+				import('../handlers/dialogCapture.js').then(module => {
+					try {
+						if (module && typeof module.captureDialog === 'function') {
+							module.captureDialog(element, item.selector, 'cloud-common');
+						}
+					} catch (importError) {
+						console.error('Error with dialogCapture module:', importError);
+					}
+				}).catch(error => {
+					console.error('Error importing dialogCapture module:', error);
+				});
+			} catch (error) {
+				console.error('Error with dynamic import:', error);
+			}
 			
 			// Only click if autoAccept is enabled - with longer delay to ensure capture completes
 			if (settings.autoAccept) {

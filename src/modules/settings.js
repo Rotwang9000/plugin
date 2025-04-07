@@ -28,18 +28,33 @@ let dataCollectionConsent = false;
  * @param {Function} callback - Callback function to run with loaded settings
  */
 function loadSettings(callback) {
+	// Wrap in try-catch to handle undefined/invalid chrome API
 	try {
-		chrome.storage.sync.get(defaultSettings, (loadedSettings) => {
-			try {
-				Object.assign(settings, loadedSettings);
-				if (callback && typeof callback === 'function') {
-					callback(settings);
+		// Safely check if chrome.storage exists before trying to use it
+		if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.sync) {
+			chrome.storage.sync.get(defaultSettings, (loadedSettings) => {
+				try {
+					// Handle the response safely
+					if (loadedSettings && typeof loadedSettings === 'object') {
+						Object.assign(settings, loadedSettings);
+					} else {
+						// If loadedSettings is invalid, use defaults
+						Object.assign(settings, defaultSettings);
+					}
+					
+					if (callback && typeof callback === 'function') {
+						callback(settings);
+					}
+				} catch (err) {
+					console.log('Error processing Chrome storage settings, falling back to localStorage', err);
+					loadFromLocalStorage(callback);
 				}
-			} catch (err) {
-				console.log('Error processing Chrome storage settings, falling back to localStorage', err);
-				loadFromLocalStorage(callback);
-			}
-		});
+			});
+		} else {
+			// Chrome storage API not available, use localStorage
+			console.log('Chrome storage API not available, using localStorage');
+			loadFromLocalStorage(callback);
+		}
 	} catch (error) {
 		console.log('Error accessing Chrome storage, falling back to localStorage', error);
 		loadFromLocalStorage(callback);
@@ -54,13 +69,27 @@ function loadFromLocalStorage(callback) {
 	try {
 		const savedSettings = localStorage.getItem('ccm_settings');
 		if (savedSettings) {
-			Object.assign(settings, JSON.parse(savedSettings));
-			console.log('Loaded settings from localStorage fallback');
+			try {
+				const parsedSettings = JSON.parse(savedSettings);
+				if (parsedSettings && typeof parsedSettings === 'object') {
+					Object.assign(settings, parsedSettings);
+					console.log('Loaded settings from localStorage fallback');
+				} else {
+					// Invalid settings in localStorage, use defaults
+					Object.assign(settings, defaultSettings);
+					console.log('Invalid settings in localStorage, using defaults');
+				}
+			} catch (parseError) {
+				// Error parsing JSON, use defaults
+				Object.assign(settings, defaultSettings);
+				console.log('Error parsing localStorage settings, using defaults');
+			}
 		} else {
 			// Use defaults if nothing in localStorage either
 			Object.assign(settings, defaultSettings);
 			console.log('Using default settings (no localStorage fallback found)');
 		}
+		
 		if (callback && typeof callback === 'function') {
 			callback(settings);
 		}
@@ -88,12 +117,14 @@ function isFirstVisitToday() {
 	}
 	
 	// Check local storage for persistence across browser sessions
-	chrome.storage.local.get([storageKey], (result) => {
-		if (!result[storageKey]) {
-			// First visit today - mark domain as visited
-			chrome.storage.local.set({ [storageKey]: true });
-		}
-	});
+	if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+		chrome.storage.local.get([storageKey], (result) => {
+			if (!result[storageKey]) {
+				// First visit today - mark domain as visited
+				chrome.storage.local.set({ [storageKey]: true });
+			}
+		});
+	}
 	
 	// Mark as visited for this session
 	visitedDomains.add(storageKey);

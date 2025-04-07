@@ -288,7 +288,7 @@ function initCookieConsentManager() {
  * Run cloud mode detection
  */
 function runCloudMode() {
-	if (!settings.cloudMode) return;
+	if (!settings.enabled || !settings.cloudMode) return;
 	
 	// Get the current domain
 	const domain = window.location.hostname;
@@ -366,13 +366,16 @@ function findSimilarPatterns(region) {
  * Run smart mode detection
  */
 function runSmartMode() {
-	if (!settings.smartMode) return;
+	if (!settings.enabled || !settings.smartMode) return;
 	
 	// First check existing elements
 	checkExistingElements();
 	
 	// Set up MutationObserver to watch for new elements
 	const observer = new MutationObserver(mutations => {
+		// Skip processing if extension is disabled
+		if (!settings.enabled) return;
+		
 		mutations.forEach(mutation => {
 			// Check for added nodes
 			if (mutation.addedNodes && mutation.addedNodes.length > 0) {
@@ -397,8 +400,14 @@ function runSmartMode() {
 
 /**
  * Check existing elements for cookie banners
+ * @returns {number} - Number of cookie banners found
  */
 function checkExistingElements() {
+	// Skip if extension is disabled
+	if (!settings.enabled) {
+		return 0;
+	}
+	
 	// Look for common cookie banner elements
 	const bannerSelectors = [
 		'div[class*="cookie"]',
@@ -413,21 +422,32 @@ function checkExistingElements() {
 	
 	// Join selectors and query all
 	const elements = document.querySelectorAll(bannerSelectors.join(','));
+	let count = 0;
 	
 	// Check each element
 	elements.forEach(element => {
-		checkElementForCookieBanner(element);
+		if (checkElementForCookieBanner(element)) {
+			count++;
+		}
 	});
+	
+	return count;
 }
 
 /**
  * Check if an element is a cookie banner
  * @param {Element} element - Element to check
+ * @returns {boolean} - Whether the element was processed as a cookie banner
  */
 function checkElementForCookieBanner(element) {
+	// Skip if extension is disabled
+	if (!settings.enabled) {
+		return false;
+	}
+	
 	// Ignore certain elements
 	if (!element || !element.tagName || element.tagName === 'SCRIPT' || element.tagName === 'STYLE') {
-		return;
+		return false;
 	}
 	
 	// Check if element or its children might be a cookie banner
@@ -456,14 +476,19 @@ function checkElementForCookieBanner(element) {
 				}
 			}
 		}
+		return true;
 	} else {
 		// Check if any child elements might be cookie banners
 		const children = element.children;
+		let found = false;
 		if (children && children.length > 0) {
 			for (let i = 0; i < children.length; i++) {
-				checkElementForCookieBanner(children[i]);
+				if (checkElementForCookieBanner(children[i])) {
+					found = true;
+				}
 			}
 		}
+		return found;
 	}
 }
 
@@ -680,19 +705,23 @@ function processCookieElement(element, selector, method) {
 /**
  * Click an element
  * @param {Element} element - Element to click
+ * @returns {boolean} - Whether the click was successful
  */
 function clickElement(element) {
-	if (!element || clickedElements.has(element)) {
-		return; // Avoid clicking the same element multiple times
+	// Skip if extension is disabled or no valid element
+	if (!settings.enabled || !element || clickedElements.has(element)) {
+		return false; // Don't click if disabled or already clicked
 	}
 	
 	// Mark as clicked
 	clickedElements.set(element, true);
 	
 	// Try different click methods
+	let success = false;
 	try {
 		// Method 1: Native click
 		element.click();
+		success = true;
 	} catch (e1) {
 		try {
 			// Method 2: Synthetic click event
@@ -701,7 +730,7 @@ function clickElement(element) {
 				bubbles: true,
 				cancelable: true
 			});
-			element.dispatchEvent(event);
+			success = element.dispatchEvent(event);
 		} catch (e2) {
 			try {
 				// Method 3: Focus and enter key
@@ -714,12 +743,15 @@ function clickElement(element) {
 					bubbles: true,
 					cancelable: true
 				});
-				element.dispatchEvent(event);
+				success = element.dispatchEvent(event);
 			} catch (e3) {
 				console.error('All click methods failed', e1, e2, e3);
+				success = false;
 			}
 		}
 	}
+	
+	return success;
 }
 
 /**
@@ -759,12 +791,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 	
 	// Handle check for cookie boxes request
 	else if (message.action === 'checkForCookieBoxes') {
-		const boxFound = checkExistingElements() > 0;
+		// Only check for cookie boxes if extension is enabled
+		const boxFound = settings.enabled ? checkExistingElements() > 0 : false;
 		sendResponse({ boxFound });
 	}
 	
 	// Handle button click request
 	else if (message.action === 'clickButton') {
+		// Skip if extension is disabled
+		if (!settings.enabled) {
+			sendResponse({ success: false, disabled: true });
+			return true;
+		}
+		
 		const buttonType = message.buttonType;
 		let success = false;
 		
@@ -778,23 +817,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 					if (buttonType === 'accept') {
 						const acceptButton = findAcceptButton(element);
 						if (acceptButton) {
-							clickElement(acceptButton);
-							success = true;
-							break;
+							success = clickElement(acceptButton);
+							if (success) break;
 						}
 					} else if (buttonType === 'reject') {
 						const rejectButton = findRejectButton(element);
 						if (rejectButton) {
-							clickElement(rejectButton);
-							success = true;
-							break;
+							success = clickElement(rejectButton);
+							if (success) break;
 						}
 					} else if (buttonType === 'settings') {
 						const settingsButton = findSettingsButton(element);
 						if (settingsButton) {
-							clickElement(settingsButton);
-							success = true;
-							break;
+							success = clickElement(settingsButton);
+							if (success) break;
 						}
 					}
 				}

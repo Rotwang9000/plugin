@@ -1,16 +1,18 @@
 // Import required modules
-const { settings, loadSettings, openedByExtension, dataCollectionConsent } = require('./modules/settings.js');
-const { runCloudMode, capturedDialogs } = require('./modules/cloudDatabase.js');
-const { runSmartMode } = require('./handlers/smartFormula.js');
-const { sanitizePrivateData, sanitizeUrl } = require('./utils/privacy.js');
-const { findAcceptButton, findNecessaryCookiesButton } = require('./utils/buttonFinders.js');
-const { clickElement } = require('./utils/elementInteraction.js');
-const { analyzeBoxSource } = require('./handlers/smartFormula.js');
+import { settings, loadSettings, openedByExtension, dataCollectionConsent } from './modules/settings.js';
+import { runCloudMode, capturedDialogs } from './modules/cloudDatabase.js';
+import { runSmartMode, analyzeBoxSource } from './handlers/smartFormula.js';
+import { sanitizePrivateData, sanitizeUrl } from './utils/privacy.js';
+import { findAcceptButton, findNecessaryCookiesButton } from './utils/buttonFinders.js';
+import { clickElement } from './utils/elementInteraction.js';
+
+console.log("Content script loaded successfully!");
 
 /**
  * Initialize the Cookie Consent Manager
  */
 function initCookieConsentManager() {
+	console.log("Initializing Cookie Consent Manager...");
 	// Start both modes if enabled
 	if (settings.cloudMode) {
 		runCloudMode();
@@ -51,48 +53,53 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 		const { dialogId, rating, isGoodMatch } = message.data;
 		
 		// Only sanitize data when submitting ratings
-		chrome.storage.local.get(['dialogHistory', 'capturedDialogs'], (result) => {
-			// Look for the dialog in both locations
-			let dialog = (result.capturedDialogs || []).find(d => d.id === dialogId);
-			if (!dialog) {
-				dialog = (result.dialogHistory || []).find(d => d.id === dialogId);
-			}
-			
-			if (dialog) {
-				// Create a sanitized copy for submission
-				const sanitizedDialog = {...dialog};
+		if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+			chrome.storage.local.get(['dialogHistory', 'capturedDialogs'], (result) => {
+				// Look for the dialog in both locations
+				let dialog = (result.capturedDialogs || []).find(d => d.id === dialogId);
+				if (!dialog) {
+					dialog = (result.dialogHistory || []).find(d => d.id === dialogId);
+				}
 				
-				// Sanitize the HTML before submission
-				const tempContainer = document.createElement('div');
-				tempContainer.innerHTML = dialog.html;
-				sanitizePrivateData(tempContainer);
-				sanitizedDialog.html = tempContainer.innerHTML;
-				
-				// Sanitize URL
-				sanitizedDialog.url = sanitizeUrl(dialog.url);
-				
-				// Submit the sanitized dialog with rating
-				chrome.runtime.sendMessage({ 
-					action: 'submitDialogRating', 
-					data: { 
-						dialogId, 
-						rating, 
-						isGoodMatch,
-						sanitizedDialog
-					}
-				}, sendResponse);
-			} else {
-				sendResponse({ error: 'Dialog not found' });
-			}
-		});
+				if (dialog) {
+					// Create a sanitized copy for submission
+					const sanitizedDialog = {...dialog};
+					
+					// Sanitize the HTML before submission
+					const tempContainer = document.createElement('div');
+					tempContainer.innerHTML = dialog.html;
+					sanitizePrivateData(tempContainer);
+					sanitizedDialog.html = tempContainer.innerHTML;
+					
+					// Sanitize URL
+					sanitizedDialog.url = sanitizeUrl(dialog.url);
+					
+					// Submit the sanitized dialog with rating
+					chrome.runtime.sendMessage({ 
+						action: 'submitDialogRating', 
+						data: { 
+							dialogId, 
+							rating, 
+							isGoodMatch,
+							sanitizedDialog
+						}
+					}, sendResponse);
+				} else {
+					sendResponse({ error: 'Dialog not found' });
+				}
+			});
+		} else {
+			sendResponse({ error: 'Storage API not available' });
+		}
 		return true;
 	} else if (message.action === 'getCapturedDialogs') {
 		sendResponse({ dialogs: capturedDialogs });
 		return true;
 	} else if (message.action === 'setDataCollectionConsent') {
-		// eslint-disable-next-line no-global-assign
-		dataCollectionConsent = message.consent;
-		chrome.storage.local.set({ dataCollectionConsent });
+		let updatedConsent = message.consent;
+		if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+			chrome.storage.local.set({ dataCollectionConsent: updatedConsent });
+		}
 		sendResponse({ success: true });
 		return true;
 	} else if (message.action === 'getDataCollectionConsent') {
@@ -151,59 +158,135 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 		
 		return true;
 	}
+	// New message handler for checkForCookieBoxes
+	else if (message.action === 'checkForCookieBoxes') {
+		// Check for cookie dialog on the page
+		// This is a simplified example - you might need more complex detection
+		try {
+			// Example cookie dialog detection
+			const cookieDialogs = document.querySelectorAll([
+				'[id*="cookie"]', 
+				'[class*="cookie"]',
+				'[id*="consent"]',
+				'[class*="consent"]',
+				'[id*="gdpr"]',
+				'[class*="gdpr"]'
+			].join(', '));
+			
+			let dialogFound = cookieDialogs.length > 0;
+			
+			sendResponse({ 
+				dialogFound: dialogFound,
+				elementsFound: dialogFound ? cookieDialogs.length : 0
+			});
+		} catch (error) {
+			console.error('Error checking for cookie boxes:', error);
+			sendResponse({ 
+				error: true, 
+				message: error.message || 'Unknown error checking for cookie dialogs'
+			});
+		}
+		return true;
+	}
+	// New message handler for cookie actions
+	else if (message.action === 'handleCookieAction') {
+		try {
+			const cookieAction = message.cookieAction;
+			let success = false;
+			
+			if (cookieAction === 'accept') {
+				// Try to find and click the accept button
+				const acceptButton = findAcceptButton();
+				if (acceptButton) {
+					clickElement(acceptButton);
+					success = true;
+				}
+			} else if (cookieAction === 'customize') {
+				// Try to find and click the necessary cookies button
+				const necessaryButton = findNecessaryCookiesButton();
+				if (necessaryButton) {
+					clickElement(necessaryButton);
+					success = true;
+				}
+			}
+			
+			sendResponse({ success });
+		} catch (error) {
+			console.error('Error handling cookie action:', error);
+			sendResponse({ 
+				success: false, 
+				error: error.message || 'Unknown error handling cookie action'
+			});
+		}
+		return true;
+	}
+	
 	return true;
 });
 
-// Check data collection consent status
-chrome.storage.local.get('dataCollectionConsent', (result) => {
-	// eslint-disable-next-line no-global-assign
-	dataCollectionConsent = result.dataCollectionConsent || false;
-});
+// Check data collection consent status safely
+let localDataCollectionConsent = false;
+if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+	chrome.storage.local.get('dataCollectionConsent', (result) => {
+		try {
+			localDataCollectionConsent = result.dataCollectionConsent === true;
+			console.log('Data collection consent:', localDataCollectionConsent);
+		} catch (error) {
+			console.error('Error accessing data collection consent:', error);
+		}
+	});
+} else {
+	console.log('Chrome storage API not available for data collection consent');
+}
 
 // Load settings and initialize
 loadSettings((loadedSettings) => {
 	// Check if this tab was recently opened by our extension
-	chrome.storage.local.get(['recentlyOpenedTabs'], (result) => {
-		if (result.recentlyOpenedTabs) {
-			const currentTabUrl = window.location.href;
-			const timestamp = Date.now();
-			
-			// Look for this URL in recently opened tabs (within last 5 seconds)
-			const recentlyOpenedTabs = result.recentlyOpenedTabs.filter(item => {
-				return (timestamp - item.timestamp) < 5000; // 5 seconds
-			});
-			
-			const wasOpenedByExtension = recentlyOpenedTabs.some(item => 
-				currentTabUrl.includes(item.url) || 
-				item.url.includes(currentTabUrl)
-			);
-			
-			if (wasOpenedByExtension) {
-				console.log('Cookie Consent Manager: This tab was opened by our extension, disabling auto-accept');
-				// eslint-disable-next-line no-global-assign
-				openedByExtension = true;
+	if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+		chrome.storage.local.get(['recentlyOpenedTabs'], (result) => {
+			try {
+				if (result.recentlyOpenedTabs) {
+					const currentTabUrl = window.location.href;
+					const timestamp = Date.now();
+					
+					// Look for this URL in recently opened tabs (within last 5 seconds)
+					const recentlyOpenedTabs = result.recentlyOpenedTabs.filter(item => {
+						return (timestamp - item.timestamp) < 5000; // 5 seconds
+					});
+					
+					const wasOpenedByExtension = recentlyOpenedTabs.some(item => 
+						currentTabUrl.includes(item.url) || 
+						item.url.includes(currentTabUrl)
+					);
+					
+					if (wasOpenedByExtension) {
+						console.log('Cookie Consent Manager: This tab was opened by our extension, disabling auto-accept');
+						// Don't modify imported variables, use local vars
+						let localOpenedByExtension = true;
+						
+						// Clean up the list, removing this URL
+						const updatedTabs = recentlyOpenedTabs.filter(item => 
+							!currentTabUrl.includes(item.url) && !item.url.includes(currentTabUrl)
+						);
+						
+						chrome.storage.local.set({ recentlyOpenedTabs: updatedTabs });
+					} else {
+						// Clean expired entries
+						chrome.storage.local.set({ recentlyOpenedTabs: recentlyOpenedTabs });
+					}
+				}
 				
-				// Clean up the list, removing this URL
-				const updatedTabs = recentlyOpenedTabs.filter(item => 
-					!currentTabUrl.includes(item.url) && !item.url.includes(currentTabUrl)
-				);
-				
-				chrome.storage.local.set({ recentlyOpenedTabs: updatedTabs });
-			} else {
-				// Clean expired entries
-				chrome.storage.local.set({ recentlyOpenedTabs: recentlyOpenedTabs });
+				// Always initialize the cookie consent manager after checking tab status
+				initCookieConsentManager();
+			} catch (error) {
+				console.error('Error checking recently opened tabs:', error);
+				// Initialize anyway in case of error
+				initCookieConsentManager();
 			}
-		}
-		
-		// Only initialize if enabled
-		if (settings.enabled) {
-			initCookieConsentManager();
-		}
-	}).catch(error => {
-		console.log('Error accessing recentlyOpenedTabs, falling back to defaults', error);
-		// Fall back to defaults if Chrome storage fails
-		if (settings.enabled) {
-			initCookieConsentManager();
-		}
-	});
+		});
+	} else {
+		// Initialize directly if Chrome storage is not available
+		console.log('Chrome storage API not available for recently opened tabs');
+		initCookieConsentManager();
+	}
 }); 

@@ -1426,7 +1426,8 @@ Do you consent to this data collection?
 		let buttonTypeText = getButtonTypeDisplayText(dialog);
 		
 		// Create a new container for all details content
-		detailedInfoElement.innerHTML = '';
+		const detailedInfo = document.getElementById('detailedInfo');
+		detailedInfo.innerHTML = '';
 		
 		// 1. Add auto-accept status indicator
 		const autoAcceptStatus = document.createElement('div');
@@ -1457,7 +1458,7 @@ Do you consent to this data collection?
 			<div class="status-icon">⚙️</div>
 			<div>${statusMessage}</div>
 		`;
-		detailedInfoElement.appendChild(autoAcceptStatus);
+		detailedInfo.appendChild(autoAcceptStatus);
 		
 		// 2. Create info card with dialog details at the top
 		const infoCard = document.createElement('div');
@@ -1517,7 +1518,7 @@ Do you consent to this data collection?
 			</div>
 		`;
 		infoCard.appendChild(infoCardContent);
-		detailedInfoElement.appendChild(infoCard);
+		detailedInfo.appendChild(infoCard);
 		
 		// Extract detected elements including links
 		if (dialog.html) {
@@ -1582,7 +1583,7 @@ Do you consent to this data collection?
 		
 		// Add action buttons if in dev mode
 		if (settings.devMode) {
-			addDialogActionButtons();
+			addDialogActionButtons(detailedInfo);
 		}
 		
 		// Add the review section
@@ -1601,267 +1602,317 @@ Do you consent to this data collection?
 		
 		console.log(`Displaying ${dialog.detectedElements.length} detected elements in ${settings.devMode ? 'dev' : 'regular'} mode`);
 		
-		// Get the elements container - directly get it each time to avoid stale references
+		// Get the elements containers
 		const detectedElementsContainer = document.getElementById('detectedElementsList');
+		const buttonClassificationsContainer = document.getElementById('buttonClassificationsList');
+		const optionClassificationsContainer = document.getElementById('optionClassificationsList');
+		
 		if (!detectedElementsContainer) {
-			console.error('Could not find detectedElementsList element');
+			console.error('Could not find necessary containers for elements');
 			return;
 		}
 		
-		// Clear the container
+		// Clear the containers
 		detectedElementsContainer.innerHTML = '';
+		
+		// Get parent containers
+		const buttonClassificationsParent = buttonClassificationsContainer ? buttonClassificationsContainer.parentElement : null;
+		const optionClassificationsParent = optionClassificationsContainer ? optionClassificationsContainer.parentElement : null;
+		
+		// Hide classification containers when not in dev mode
+		if (buttonClassificationsParent) {
+			buttonClassificationsParent.style.display = settings.devMode ? 'block' : 'none';
+		}
+		
+		if (optionClassificationsParent) {
+			optionClassificationsParent.style.display = settings.devMode ? 'block' : 'none';
+		}
+		
+		// If in dev mode, clear the classification containers
+		if (settings.devMode) {
+			if (buttonClassificationsContainer) buttonClassificationsContainer.innerHTML = '';
+			if (optionClassificationsContainer) optionClassificationsContainer.innerHTML = '';
+		}
 		
 		// Handle no elements detected
 		if (!dialog.detectedElements || dialog.detectedElements.length === 0) {
 			detectedElementsContainer.innerHTML = '<div class="no-elements-message">No elements detected in this dialog.</div>';
+			
+			if (settings.devMode) {
+				if (buttonClassificationsContainer) buttonClassificationsContainer.innerHTML = '<div class="no-elements-message">No buttons detected</div>';
+				if (optionClassificationsContainer) optionClassificationsContainer.innerHTML = '<div class="no-elements-message">No options detected</div>';
+			}
 			return;
 		}
 		
-		// Different display based on devMode
-		if (settings.devMode) {
-			console.log('Rendering elements in dev mode');
-			// DEV MODE - Show detailed detection options
-			
-			// 1. Create the title row
-			const headingRow = document.createElement('div');
-			headingRow.className = 'detected-element-heading';
-			headingRow.innerHTML = `
-				<div class="element-column">Element</div>
-				<div class="type-column">Type</div>
-				<div class="action-column">Action</div>
-			`;
-			detectedElementsContainer.appendChild(headingRow);
-			
-			// 2. Create a row for each detected element
-			dialog.detectedElements.forEach((element, index) => {
-				const row = document.createElement('div');
-				row.className = 'detected-element-row';
+		// Create button type options for dropdown (only needed in dev mode)
+		const buttonTypeOptions = settings.devMode ? [
+			{ value: 'accept_all', text: 'Accept All' },
+			{ value: 'essential_only', text: 'Essential Only' },
+			{ value: 'necessary_only', text: 'Necessary Only' },
+			{ value: 'customise', text: 'Customise' },
+			{ value: 'decline', text: 'Decline' },
+			{ value: 'other', text: 'Other' },
+			{ value: 'bad_match', text: 'Bad Match' }
+		] : [];
+		
+		// Create option type options for dropdown (only needed in dev mode)
+		const optionTypeOptions = settings.devMode ? [
+			{ value: 'essential', text: 'Essential' },
+			{ value: 'analytics', text: 'Analytics' },
+			{ value: 'marketing', text: 'Marketing' },
+			{ value: 'preferences', text: 'Preferences' },
+			{ value: 'privacy', text: 'Privacy' },
+			{ value: 'other', text: 'Other' },
+			{ value: 'bad_match', text: 'Bad Match' }
+		] : [];
+		
+		// Filter elements by type - we need to categorize buttons, options, and other elements
+		const buttons = dialog.detectedElements.filter(el => 
+			el.tagName === 'BUTTON' || 
+			el.tagName === 'INPUT' && (el.type === 'button' || el.type === 'submit') ||
+			el.isButton || 
+			el.role === 'button');
+		
+		const options = dialog.detectedElements.filter(el =>
+			el.tagName === 'INPUT' && (el.type === 'checkbox' || el.type === 'radio') ||
+			el.isOption || 
+			el.role === 'checkbox' || 
+			el.role === 'radio');
+		
+		const otherElements = dialog.detectedElements.filter(el =>
+			!buttons.includes(el) && !options.includes(el));
+		
+		// Always display important links and other elements in the main detected elements container
+		// Extract all links from all element types for non-dev mode
+		let allLinks = otherElements;
+		
+		// In non-dev mode, pull important links from buttons and options too
+		if (!settings.devMode) {
+			// Add buttons and options that appear to be more info/settings links to the links list
+			const buttonLinks = buttons.filter(button => {
+				if (!button.text) return false;
 				
-				// Text column with element info
-				const elementText = document.createElement('div');
-				elementText.className = 'element-column';
-				
-				// Create text content with appropriate information
-				let displayText = element.text || 'No text';
-				if (element.tagName) {
-					displayText = `<${element.tagName.toLowerCase()}> ${displayText}`;
-				}
-				
-				// Add href for links
-				if (element.href) {
-					displayText += `<br><span class="element-href">${element.href}</span>`;
-				}
-				
-				elementText.innerHTML = displayText;
-				row.appendChild(elementText);
-				
-				// Type selection column
-				const typeColumn = document.createElement('div');
-				typeColumn.className = 'type-column';
-				
-				const typeSelect = document.createElement('select');
-				typeSelect.className = 'element-type-select';
-				typeSelect.dataset.elementIndex = index;
-				
-				// Add options to select
-				const options = [
-					{ value: 'button', text: 'Button' },
-					{ value: 'consent', text: 'Consent Button' },
-					{ value: 'deny', text: 'Deny Button' },
-					{ value: 'accept', text: 'Accept Button' },
-					{ value: 'text', text: 'Text' },
-					{ value: 'link', text: 'Link' },
-					{ value: 'heading', text: 'Heading' },
-					{ value: 'checkbox', text: 'Checkbox' },
-					{ value: 'privacy', text: 'Privacy Policy' },
-					{ value: 'terms', text: 'Terms of Service' },
-					{ value: 'other', text: 'Other' }
-				];
-				
-				options.forEach(option => {
-					const optionEl = document.createElement('option');
-					optionEl.value = option.value;
-					optionEl.textContent = option.text;
-					typeSelect.appendChild(optionEl);
-				});
-				
-				// Set the current value
-				typeSelect.value = element.type || 'other';
-				
-				// Add event listener to update the dialog when changed
-				typeSelect.addEventListener('change', (e) => {
-					const index = parseInt(e.target.dataset.elementIndex);
-					const newType = e.target.value;
-					
-					// Update the dialog object
-					dialog.detectedElements[index].type = newType;
-					
-					// Mark as edited
-					dialog.edited = true;
-				});
-				
-				typeColumn.appendChild(typeSelect);
-				row.appendChild(typeColumn);
-				
-				// Action column
-				const actionColumn = document.createElement('div');
-				actionColumn.className = 'action-column';
-				
-				// Create the test button
-				const testButton = document.createElement('button');
-				testButton.className = 'test-element-button';
-				testButton.textContent = 'Test';
-				testButton.title = 'Test this element on the page';
-				testButton.dataset.elementIndex = index;
-				
-				testButton.addEventListener('click', async () => {
-					// Get the current tab
-					const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-					const activeTab = tabs[0];
-					
-					// Send message to test this element
-					chrome.tabs.sendMessage(activeTab.id, {
-						action: 'testElement',
-						elementData: dialog.detectedElements[index]
-					});
-				});
-				
-				actionColumn.appendChild(testButton);
-				row.appendChild(actionColumn);
-				
-				// Add the row to the container
-				detectedElementsContainer.appendChild(row);
-			});
-		} else {
-			console.log('Rendering elements in regular mode');
-			// NON-DEV MODE - Show simplified view with important links
-			
-			// Filter important links
-			const importantLinks = dialog.detectedElements.filter(element => {
-				if (!element.text) return false;
-				
-				const textLower = element.text.toLowerCase();
-				const type = element.type?.toLowerCase() || '';
-				const href = element.href?.toLowerCase() || '';
-				
-				// Check if this is a privacy/terms/more info link
-				return (
-					type === 'privacy' || 
-					type === 'terms' || 
+				const textLower = button.text.toLowerCase();
+				return textLower.includes('more') || 
+					textLower.includes('info') || 
+					textLower.includes('settings') || 
+					textLower.includes('preference') || 
 					textLower.includes('privacy') || 
-					textLower.includes('policy') || 
-					textLower.includes('terms') || 
-					textLower.includes('more info') || 
-					textLower.includes('learn more') ||
-					textLower.includes('cookie') ||
-					textLower.includes('preference') ||
-					textLower.includes('settings') ||
-					href.includes('privacy') || 
-					href.includes('policy') || 
-					href.includes('terms') || 
-					href.includes('cookie')
-				);
+					textLower.includes('cookie') || 
+					textLower.includes('choices');
 			});
 			
-			// If we have important links, display them
-			if (importantLinks.length > 0) {
-				const linksContainer = document.createElement('div');
-				linksContainer.className = 'important-links-container';
-				
-				const linksHeading = document.createElement('h3');
-				linksHeading.textContent = 'Important Links';
-				linksHeading.className = 'important-links-heading';
-				linksContainer.appendChild(linksHeading);
-				
-				const linksList = document.createElement('div');
-				linksList.className = 'important-links-list';
-				
-				importantLinks.forEach(link => {
-					const linkElement = document.createElement('a');
-					linkElement.className = 'important-link';
-					linkElement.textContent = link.text;
-					linkElement.href = link.href;
-					linkElement.target = '_blank';
-					linkElement.rel = 'noopener noreferrer';
+			allLinks = [...allLinks, ...buttonLinks];
+		} else {
+			// In dev mode, display summary info
+			const summaryInfo = document.createElement('div');
+			summaryInfo.className = 'elements-summary';
+			summaryInfo.innerHTML = `
+				<p>Total elements: ${dialog.detectedElements.length}</p>
+				<p>Buttons: ${buttons.length}</p>
+				<p>Options: ${options.length}</p>
+			`;
+			detectedElementsContainer.appendChild(summaryInfo);
+		}
+		
+		// 1. Populate button classifications section (only in dev mode)
+		if (settings.devMode && buttonClassificationsContainer) {
+			if (buttons.length > 0) {
+				buttons.forEach((button, index) => {
+					const elementRow = document.createElement('div');
+					elementRow.className = 'element-row';
 					
-					// Add icon based on link type
-					let icon = '🔗';
-					if (link.text.toLowerCase().includes('privacy') || link.type === 'privacy') {
-						icon = '🔒';
-					} else if (link.text.toLowerCase().includes('terms') || link.type === 'terms') {
-						icon = '📜';
-					} else if (link.text.toLowerCase().includes('cookie')) {
-						icon = '🍪';
-					} else if (link.text.toLowerCase().includes('settings') || link.text.toLowerCase().includes('preference')) {
-						icon = '⚙️';
+					// Element text
+					const elementText = document.createElement('div');
+					elementText.className = 'element-text';
+					elementText.textContent = button.text || button.value || 'Unnamed button';
+					
+					// Create the type dropdown for this button
+					const typeSelect = document.createElement('select');
+					typeSelect.className = 'element-type-select';
+					typeSelect.dataset.buttonIndex = index;
+					
+					// Add options to the dropdown
+					buttonTypeOptions.forEach(option => {
+						const optionEl = document.createElement('option');
+						optionEl.value = option.value;
+						optionEl.textContent = option.text;
+						typeSelect.appendChild(optionEl);
+					});
+					
+					// Set current value if available
+					if (button.type) {
+						typeSelect.value = button.type;
 					}
 					
-					linkElement.innerHTML = `<span class="link-icon">${icon}</span> ${link.text}`;
-					linksList.appendChild(linkElement);
+					// Add event listener for dropdown change
+					typeSelect.addEventListener('change', function() {
+						// Update the button's classification
+						button.type = this.value;
+						
+						// Update UI - if any classifications changed, update the rating buttons
+						updateRatingButtons();
+						
+						// Mark as modified
+						dialog.modified = true;
+					});
+					
+					// Add to row
+					elementRow.appendChild(elementText);
+					elementRow.appendChild(typeSelect);
+					
+					// Add row to container
+					buttonClassificationsContainer.appendChild(elementRow);
 				});
-				
-				linksContainer.appendChild(linksList);
-				detectedElementsContainer.appendChild(linksContainer);
+			} else {
+				buttonClassificationsContainer.innerHTML = '<div class="no-elements-message">No buttons detected</div>';
 			}
-			
-			// Add the simplified rating section
-			const ratingContainer = document.createElement('div');
-			ratingContainer.className = 'simple-rating-container';
-			
-			const ratingHeading = document.createElement('h3');
-			ratingHeading.textContent = 'Rate This Dialog';
-			ratingHeading.className = 'rating-heading';
-			ratingContainer.appendChild(ratingHeading);
-			
-			const ratingDescription = document.createElement('p');
-			ratingDescription.className = 'rating-description';
-			ratingDescription.textContent = 'Was this cookie dialog correctly handled by the extension?';
-			ratingContainer.appendChild(ratingDescription);
-			
-			const ratingButtons = document.createElement('div');
-			ratingButtons.className = 'inline-rating-buttons';
-			
-			// Good button
-			const goodButton = document.createElement('button');
-			goodButton.className = 'inline-rating-button good-button';
-			goodButton.innerHTML = '<span class="rating-icon">👍</span> Good - Correctly Handled';
-			
-			goodButton.addEventListener('click', () => {
-				if (currentDialogId) {
-					checkConsentBeforeAction(() => {
-						submitRating(currentDialogId, 5, true);
+		}
+		
+		// 2. Populate option classifications section (only in dev mode)
+		if (settings.devMode && optionClassificationsContainer) {
+			if (options.length > 0) {
+				options.forEach((option, index) => {
+					const elementRow = document.createElement('div');
+					elementRow.className = 'element-row';
+					
+					// Element text
+					const elementText = document.createElement('div');
+					elementText.className = 'element-text';
+					elementText.textContent = option.text || option.value || 'Unnamed option';
+					
+					// Create the type dropdown for this option
+					const typeSelect = document.createElement('select');
+					typeSelect.className = 'element-type-select';
+					typeSelect.dataset.optionIndex = index;
+					
+					// Add options to the dropdown
+					optionTypeOptions.forEach(optionType => {
+						const optionEl = document.createElement('option');
+						optionEl.value = optionType.value;
+						optionEl.textContent = optionType.text;
+						typeSelect.appendChild(optionEl);
 					});
-				}
-			});
-			
-			// Bad button
-			const badButton = document.createElement('button');
-			badButton.className = 'inline-rating-button bad-button';
-			badButton.innerHTML = '<span class="rating-icon">👎</span> Bad - Needs Improvement';
-			
-			badButton.addEventListener('click', () => {
-				if (currentDialogId) {
-					checkConsentBeforeAction(() => {
-						submitRating(currentDialogId, 1, false);
+					
+					// Set current value if available
+					if (option.type) {
+						typeSelect.value = option.type;
+					}
+					
+					// Add event listener for dropdown change
+					typeSelect.addEventListener('change', function() {
+						// Update the option's classification
+						option.type = this.value;
+						
+						// Update UI - if any classifications changed, update the rating buttons
+						updateRatingButtons();
+						
+						// Mark as modified
+						dialog.modified = true;
 					});
+					
+					// Add to row
+					elementRow.appendChild(elementText);
+					elementRow.appendChild(typeSelect);
+					
+					// Add row to container
+					optionClassificationsContainer.appendChild(elementRow);
+				});
+			} else {
+				optionClassificationsContainer.innerHTML = '<div class="no-elements-message">No options detected</div>';
+			}
+		}
+		
+		// 3. Always display important links in the main detected elements container
+		const importantLinks = allLinks.filter(element => {
+			if (!element.text) return false;
+			
+			const textLower = element.text.toLowerCase();
+			const type = element.type?.toLowerCase() || '';
+			const href = element.href?.toLowerCase() || '';
+			
+			// Check if this is a privacy/terms/more info link
+			return (
+				type === 'privacy' || 
+				type === 'terms' || 
+				textLower.includes('privacy') || 
+				textLower.includes('policy') || 
+				textLower.includes('terms') || 
+				textLower.includes('more info') || 
+				textLower.includes('learn more') ||
+				textLower.includes('cookie') ||
+				textLower.includes('preference') ||
+				textLower.includes('settings') ||
+				textLower.includes('manage') ||
+				textLower.includes('customize') ||
+				textLower.includes('customise') ||
+				href.includes('privacy') || 
+				href.includes('policy') || 
+				href.includes('terms') || 
+				href.includes('cookie')
+			);
+		});
+		
+		// If we have important links, display them
+		if (importantLinks.length > 0) {
+			// Add important links header
+			const linksHeader = document.createElement('h4');
+			linksHeader.textContent = 'Privacy & Settings Links';
+			linksHeader.style.marginTop = '15px';
+			detectedElementsContainer.appendChild(linksHeader);
+			
+			// Create links list
+			const linksList = document.createElement('ul');
+			linksList.style.paddingLeft = '20px';
+			detectedElementsContainer.appendChild(linksList);
+			
+			// Add each important link
+			importantLinks.forEach(link => {
+				const linkItem = document.createElement('li');
+				if (link.href) {
+					linkItem.innerHTML = `<a href="${link.href}" target="_blank">${link.text || link.href}</a>`;
+				} else {
+					linkItem.textContent = link.text || 'Unnamed link';
 				}
+				linksList.appendChild(linkItem);
 			});
-			
-			ratingButtons.appendChild(goodButton);
-			ratingButtons.appendChild(badButton);
-			ratingContainer.appendChild(ratingButtons);
-			
-			detectedElementsContainer.appendChild(ratingContainer);
+		} else {
+			// If no important links found
+			const noLinksMessage = document.createElement('div');
+			noLinksMessage.className = 'no-elements-message';
+			noLinksMessage.textContent = 'No privacy policy, cookie settings or terms links found.';
+			detectedElementsContainer.appendChild(noLinksMessage);
+		}
+	}
+
+	// Add a function to update the rating buttons based on modifications
+	function updateRatingButtons() {
+		const goodMatchBtn = document.getElementById('goodMatchBtn');
+		const badMatchBtn = document.getElementById('badMatchBtn');
+		
+		if (!goodMatchBtn || !badMatchBtn) return;
+		
+		// If the dialog has been modified, change the badMatchBtn to "Submit Changes"
+		// and hide the goodMatchBtn
+		if (currentDialog && currentDialog.modified) {
+			goodMatchBtn.style.display = 'none';
+			badMatchBtn.textContent = 'Submit Changes';
+			badMatchBtn.className = 'submit-changes';
+		} else {
+			goodMatchBtn.style.display = 'block';
+			badMatchBtn.textContent = 'Bad Match';
+			badMatchBtn.className = '';
 		}
 	}
 
 	function submitRating(dialogId, rating, isGoodMatch) {
 		// Collect the classifications from dropdowns
 		const elementClassifications = [];
-		const detectedElementsList = document.getElementById('detectedElementsList');
 		
-		// Get all button classifications
-		const buttonRows = detectedElementsList.querySelectorAll('.element-row');
+		// Get button classifications
+		const buttonClassificationsList = document.getElementById('buttonClassificationsList');
+		const buttonRows = buttonClassificationsList.querySelectorAll('.element-row');
 		buttonRows.forEach(row => {
 			const elementText = row.querySelector('.element-text').textContent;
 			const elementTypeSelect = row.querySelector('.element-type-select');
@@ -1870,21 +1921,41 @@ Do you consent to this data collection?
 				const classification = {
 					text: elementText,
 					type: elementTypeSelect.value,
-					isBadMatch: elementTypeSelect.value === 'bad_match'
+					isBadMatch: elementTypeSelect.value === 'bad_match',
+					elementType: 'button',
+					index: elementTypeSelect.dataset.buttonIndex
 				};
-				
-				// Add whether it's a button or option
-				if (elementTypeSelect.dataset.buttonIndex) {
-					classification.elementType = 'button';
-					classification.index = elementTypeSelect.dataset.buttonIndex;
-				} else if (elementTypeSelect.dataset.optionIndex) {
-					classification.elementType = 'option';
-					classification.index = elementTypeSelect.dataset.optionIndex;
-				}
-				
 				elementClassifications.push(classification);
 			}
 		});
+		
+		// Get option classifications
+		const optionClassificationsList = document.getElementById('optionClassificationsList');
+		const optionRows = optionClassificationsList.querySelectorAll('.element-row');
+		optionRows.forEach(row => {
+			const elementText = row.querySelector('.element-text').textContent;
+			const elementTypeSelect = row.querySelector('.element-type-select');
+			
+			if (elementTypeSelect) {
+				const classification = {
+					text: elementText,
+					type: elementTypeSelect.value,
+					isBadMatch: elementTypeSelect.value === 'bad_match',
+					elementType: 'option',
+					index: elementTypeSelect.dataset.optionIndex
+				};
+				elementClassifications.push(classification);
+			}
+		});
+		
+		// Create a submission object
+		const submissionData = {
+			dialogId,
+			rating,
+			isGoodMatch,
+			elementClassifications,
+			modified: currentDialog && currentDialog.modified
+		};
 		
 		// Send to content script first for sanitization
 		chrome.tabs.query({active: true, currentWindow: true}, (tabs) => {
@@ -1892,12 +1963,7 @@ Do you consent to this data collection?
 				// First send to content script to sanitize
 				chrome.tabs.sendMessage(tabs[0].id, {
 					action: 'submitRating',
-					data: { 
-						dialogId, 
-						rating, 
-						isGoodMatch,
-						elementClassifications
-					}
+					data: submissionData
 				}, (response) => {
 					if (response && !response.error) {
 						// Content script has sanitized and submitted the data
@@ -1911,12 +1977,7 @@ Do you consent to this data collection?
 						// If content script not available or error, try direct submission
 						chrome.runtime.sendMessage({ 
 							action: 'submitDialogRating',
-							data: { 
-								dialogId, 
-								rating, 
-								isGoodMatch,
-								elementClassifications
-							} 
+							data: submissionData
 						}, (response) => {
 							if (response && response.success) {
 								// Mark as reviewed in history
@@ -1941,19 +2002,14 @@ Do you consent to this data collection?
 				// No active tab, try direct submission
 				chrome.runtime.sendMessage({ 
 					action: 'submitDialogRating',
-					data: { 
-						dialogId, 
-						rating, 
-						isGoodMatch,
-						elementClassifications
-					} 
+					data: submissionData
 				}, (response) => {
 					if (response && response.success) {
 						// Mark as reviewed in history
 						chrome.runtime.sendMessage({
-							action: 'markDialogAsReviewed',
-							dialogId
-						});
+								action: 'markDialogAsReviewed',
+								dialogId
+							});
 						
 						submissionStatus.textContent = 'Thanks! Your rating has been submitted.';
 						// Refresh the list after submission
@@ -2556,7 +2612,7 @@ Do you consent to this data collection?
 		updateStatus(settings);
 	}
 
-	function addDialogActionButtons() {
+	function addDialogActionButtons(detailedInfo) {
 		// Only add action buttons if not already present
 		if (document.querySelector('.action-buttons-container')) {
 			return;
@@ -2565,7 +2621,7 @@ Do you consent to this data collection?
 		// 3. Create action buttons
 		const actionButtonsContainer = document.createElement('div');
 		actionButtonsContainer.className = 'action-buttons-container';
-		detailedInfoElement.appendChild(actionButtonsContainer);
+		detailedInfo.appendChild(actionButtonsContainer);
 		
 		// View Source button
 		const viewSourceButton = document.createElement('button');
@@ -2690,6 +2746,9 @@ Do you consent to this data collection?
 			return;
 		}
 		
+		const detailedInfo = document.getElementById('detailedInfo');
+		if (!detailedInfo) return;
+		
 		// 5. Add review section
 		if (!isHistory) {
 			const reviewSection = document.createElement('div');
@@ -2726,7 +2785,7 @@ Do you consent to this data collection?
 			submissionStatusEl.textContent = 'You can adjust classifications above before submitting';
 			reviewSection.appendChild(submissionStatusEl);
 			
-			detailedInfoElement.appendChild(reviewSection);
+			detailedInfo.appendChild(reviewSection);
 			
 			// Add event handlers for the rating buttons
 			goodMatchBtn.addEventListener('click', () => {
@@ -2756,7 +2815,7 @@ Do you consent to this data collection?
 			historyNote.style.color = '#666';
 			historyNote.style.fontSize = '13px';
 			historyNote.textContent = 'Historical record - no review needed';
-			detailedInfoElement.appendChild(historyNote);
+			detailedInfo.appendChild(historyNote);
 		}
 	}
 
@@ -2789,6 +2848,21 @@ Do you consent to this data collection?
 			if (currentDialog) {
 				const dialogDetailContainer = document.getElementById('dialogDetailContainer');
 				const noSelectionMessage = document.getElementById('noSelectionMessage');
+				const buttonClassificationsContainer = document.getElementById('buttonClassificationsList');
+				const optionClassificationsContainer = document.getElementById('optionClassificationsList');
+				
+				// Get parent containers
+				const buttonClassificationsParent = buttonClassificationsContainer ? buttonClassificationsContainer.parentElement : null;
+				const optionClassificationsParent = optionClassificationsContainer ? optionClassificationsContainer.parentElement : null;
+				
+				// Hide classification containers when not in dev mode
+				if (buttonClassificationsParent) {
+					buttonClassificationsParent.style.display = settings.devMode ? 'block' : 'none';
+				}
+				
+				if (optionClassificationsParent) {
+					optionClassificationsParent.style.display = settings.devMode ? 'block' : 'none';
+				}
 				
 				if (dialogDetailContainer) {
 					dialogDetailContainer.style.display = 'block';
@@ -2799,7 +2873,11 @@ Do you consent to this data collection?
 				}
 				
 				// Refresh the detected elements display with the current settings
+				console.log('Refreshing element classifications for dialog:', currentDialog.domain);
 				displayDetectedElements(currentDialog);
+				
+				// Also update the rating buttons in case dialog was modified
+				updateRatingButtons();
 			} else {
 				const dialogDetailContainer = document.getElementById('dialogDetailContainer');
 				const noSelectionMessage = document.getElementById('noSelectionMessage');
@@ -2832,6 +2910,46 @@ Do you consent to this data collection?
 		}, 10);
 	}
 }); 
+
+// Add event listeners for custom events from history-ui.js
+document.addEventListener('dialogDetailsLoaded', (event) => {
+	const dialog = event.detail;
+	
+	if (dialog) {
+		// Set global current dialog variables
+		currentDialog = dialog;
+		currentDialogId = dialog.id;
+		
+		// Display the detected elements using our implementation
+		displayDetectedElements(dialog);
+		
+		// Add action buttons if in dev mode
+		if (settings && settings.devMode) {
+			const detailedInfo = document.getElementById('detailedInfo');
+			if (detailedInfo) {
+				addDialogActionButtons(detailedInfo);
+			}
+		}
+		
+		// Add the review section
+		addReviewSection(dialog.source === 'history');
+		
+		// Update rating buttons visibility
+		updateRatingButtons();
+	}
+});
+
+document.addEventListener('switchedToDetailsTab', (event) => {
+	const dialog = event.detail;
+	
+	if (dialog) {
+		// Update element classifications display
+		displayDetectedElements(dialog);
+		
+		// Update rating buttons visibility
+		updateRatingButtons();
+	}
+});
 
 // Also listen for tab activation
 chrome.tabs.onActivated.addListener(() => {

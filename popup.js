@@ -3,12 +3,25 @@ import { loadSettings, updateUIFromSettings, updateDevModeUI, toggleDevModeTabs,
 import { loadAllDialogs, displayAllDialogs, renderDialogItems, getButtonTypeDisplayText, markDialogReviewed } from './src/ui/history-ui.js';
 import { displayDetectionStatus, displayDetectedElements } from './src/ui/dialog-display.js';
 import { updateDialogCount, clearBadgeCount, displayStatistics, displayChart } from './src/ui/stats-ui.js';
+import { initTooltips } from './src/ui/tooltip-ui.js';
 import { formatHtmlWithLineNumbers, escapeHtml, safeGetHtmlContent, createViewableHtmlDocument } from './src/modules/html-utils.js';
 import { createElement, clearElement, toggleClass, queryAndProcess, addDebouncedEventListener } from './src/modules/dom-utils.js';
-import { getSettings, saveSettings, getDialogHistory, saveDialogToHistory, markDialogAsReviewed, dataCollectionConsent } from './src/modules/storage.js';
+import { 
+	getSettings, saveSettings, getDialogHistory, saveDialogToHistory, markDialogAsReviewed,
+	getSettingsAsync, saveSettingsAsync, getDialogHistoryAsync, saveDialogToHistoryAsync, markDialogAsReviewedAsync,
+	getDataCollectionConsentAsync, setDataCollectionConsentAsync 
+} from './src/modules/storage.js';
 import { analyzeDialogSource } from './src/detection/smart-detection.js';
-import { sendMessageToBackground, sendMessageToActiveTab } from './src/api/messaging.js';
+import { 
+	sendMessageToBackground, sendMessageToActiveTab,
+	sendMessageToBackgroundAsync, sendMessageToActiveTabAsync
+} from './src/api/messaging.js';
 import { submitDialogRating, fetchCloudStatistics, reportDialogToCloud } from './src/api/cloud-api.js';
+
+// Global variables to track current dialog
+let currentDialog = null;
+let currentDialogId = null;
+let settings = {};
 
 document.addEventListener('DOMContentLoaded', () => {
 	// Add CSS for the button-type-list class
@@ -51,6 +64,70 @@ document.addEventListener('DOMContentLoaded', () => {
 			box-shadow: 0 3px 6px rgba(0,0,0,0.15);
 		}
 		
+		/* Button preference UI styles */
+		.preference-list {
+			margin: 10px 0;
+			border: 1px solid #eee;
+			border-radius: 5px;
+			overflow: hidden;
+		}
+		
+		.preference-item {
+			display: flex;
+			align-items: center;
+			padding: 8px 10px;
+			border-bottom: 1px solid #eee;
+			background-color: white;
+		}
+		
+		.preference-item:last-child {
+			border-bottom: none;
+		}
+		
+		.preference-item.dragging {
+			background-color: #f9f9f9;
+			box-shadow: 0 0 5px rgba(0,0,0,0.1);
+		}
+		
+		.drag-handle {
+			margin-right: 8px;
+			cursor: grab;
+			color: #999;
+			font-size: 16px;
+		}
+		
+		.preference-label {
+			flex: 1;
+			font-size: 13px;
+		}
+		
+		.toggle.small input:checked + .slider {
+			background-color: #4CAF50;
+		}
+		
+		.toggle.small .slider {
+			width: 30px;
+			height: 16px;
+		}
+		
+		.toggle.small .slider:before {
+			height: 10px;
+			width: 10px;
+			left: 3px;
+			bottom: 3px;
+		}
+		
+		.toggle.small input:checked + .slider:before {
+			transform: translateX(14px);
+		}
+		
+		.feature-note {
+			font-size: 11px;
+			color: #666;
+			margin-top: 5px;
+			font-style: italic;
+		}
+		
 		.detection-header {
 			padding: 12px 15px;
 			font-weight: bold;
@@ -88,6 +165,14 @@ document.addEventListener('DOMContentLoaded', () => {
 		.status-error .detection-header {
 			background-color: #ffebee;
 			color: #C62828;
+		}
+		
+		.status-info {
+			border-left: 4px solid #2196F3;
+		}
+		.status-info .detection-header {
+			background-color: #e3f2fd;
+			color: #0D47A1;
 		}
 		
 		.status-none {
@@ -214,7 +299,10 @@ document.addEventListener('DOMContentLoaded', () => {
 	`;
 	document.head.appendChild(style);
 	
-	// Initialize tab navigation with proper tab switching
+	// Initialize tooltips
+	initTooltips();
+	
+	// Initialize tab navigation first to ensure we can switch tabs programmatically
 	initProperTabNavigation();
 	
 	// Initialize settings controls with proper saving
@@ -225,18 +313,67 @@ document.addEventListener('DOMContentLoaded', () => {
 	
 	// Initial loading of settings and data
 	loadSettings().then(settings => {
-		updateUIFromSettings(settings);
-		updateDevModeUI(settings.devMode);
-		updateStatus(settings);
-		
-		// Check the premium status
-		checkPremiumStatus();
-		
-		// Check data collection consent
-		checkDataCollectionConsent();
-		
-		// Check cookie status on current page
-		updateCurrentPageStatus();
+		// First check for test premium mode
+		chrome.storage.local.get(['testPremiumMode'], (testResult) => {
+			// If test premium mode is enabled, treat as premium
+			if (testResult.testPremiumMode === true) {
+				const isPremium = true;
+				
+				// Continue with UI updates
+				updateUIFromSettings(settings);
+				updateDevModeUI(settings.devMode);
+				updateStatus(settings);
+				updateSubscriptionUI(isPremium);
+				
+				// Check data collection consent
+				checkDataCollectionConsent();
+				
+				// Check cookie status on current page
+				updateCurrentPageStatus();
+				return;
+			}
+			
+			// Otherwise check actual premium status
+			sendMessageToBackgroundAsync({ action: 'checkPremiumStatus' })
+				.then(response => {
+					const isPremium = response.isPremium;
+					
+					// If preferEssential is enabled but user is not premium, disable it
+					if (settings.preferEssential && !isPremium) {
+						settings.preferEssential = false;
+						saveSettings(settings).then(() => {
+							console.log('Disabled premium feature for non-premium user');
+						});
+					}
+					
+					// Continue with UI updates
+					updateUIFromSettings(settings);
+					updateDevModeUI(settings.devMode);
+					updateStatus(settings);
+					updateSubscriptionUI(isPremium);
+					
+					// Check data collection consent
+					checkDataCollectionConsent();
+					
+					// Check cookie status on current page
+					updateCurrentPageStatus();
+				})
+				.catch(error => {
+					console.error('Failed to check premium status:', error);
+					
+					// Continue with UI updates anyway
+					updateUIFromSettings(settings);
+					updateDevModeUI(settings.devMode);
+					updateStatus(settings);
+					updateSubscriptionUI(false); // Default to free plan
+					
+					// Check data collection consent
+					checkDataCollectionConsent();
+					
+					// Check cookie status on current page
+					updateCurrentPageStatus();
+				});
+		});
 	});
 	
 	// Setup other tabs
@@ -255,33 +392,88 @@ document.addEventListener('DOMContentLoaded', () => {
 	disablePremiumFeatures();
 });
 
-// Initialize proper tab navigation that actually works
+// Initialize tab navigation with proper tab switching
 function initProperTabNavigation() {
 	const tabs = document.querySelectorAll('.tab');
 	const tabContents = document.querySelectorAll('.tab-content');
 	
+	// Function to switch to a specific tab
+	function switchToTab(tabId) {
+		// Deactivate all tabs and content
+		tabs.forEach(tab => tab.classList.remove('active'));
+		tabContents.forEach(content => content.classList.remove('active'));
+		
+		// Activate the selected tab and content
+		const selectedTab = document.querySelector(`.tab[data-tab="${tabId}"]`);
+		const selectedContent = document.getElementById(`${tabId}-tab`);
+		
+		if (selectedTab) selectedTab.classList.add('active');
+		if (selectedContent) selectedContent.classList.add('active');
+		
+		// Special handling for history tab
+		if (tabId === 'history') {
+			loadAllDialogs().then(dialogs => {
+				displayHistoryDialogs(dialogs);
+			});
+		}
+	}
+	
+	// Add click listeners to all tabs
 	tabs.forEach(tab => {
+		const tabId = tab.getAttribute('data-tab');
+		
 		tab.addEventListener('click', () => {
-			// Remove active class from all tabs and contents
+			const tabName = tabId;
+			
+			// Remove active class from all tabs
 			tabs.forEach(t => t.classList.remove('active'));
-			tabContents.forEach(c => c.classList.remove('active'));
+			tabContents.forEach(tc => tc.classList.remove('active'));
 			
-			// Add active class to clicked tab
+			// Add active class to current tab
 			tab.classList.add('active');
+			document.getElementById(`${tabName}-tab`).classList.add('active');
 			
-			// Add active class to corresponding content
-			const tabId = tab.getAttribute('data-tab');
-			const tabContent = document.getElementById(tabId);
-			if (tabContent) {
-				tabContent.classList.add('active');
+			// Special handling for review tab
+			if (tabName === 'review') {
+				// Get the current filter value
+				const historyFilter = document.getElementById('historyFilter');
+				const filterValue = historyFilter ? historyFilter.value : 'all';
+				
+				console.log('Loading dialogs with filter:', filterValue);
+				
+				// Import modules and load dialogs
+				import('./src/ui/history-ui.js').then(module => {
+					module.loadAllDialogs(filterValue).then(dialogs => {
+						module.displayAllDialogs(dialogs);
+					}).catch(error => {
+						console.error('Error loading dialogs:', error);
+						const historyList = document.getElementById('historyList');
+						if (historyList) {
+							historyList.innerHTML = '<div class="no-dialogs">Error loading dialogs. Please try again.</div>';
+						}
+					});
+				}).catch(error => {
+					console.error('Error importing history-ui.js:', error);
+					// Fallback to legacy method
+					loadAllDialogs(filterValue);
+				});
 			}
 			
-			// If on the settings tab, update the current page status
-			if (tabId === 'settings') {
-				updateCurrentPageStatus();
+			// If details tab is selected but no dialog is selected, show the no selection message
+			if (tabName === 'details') {
+				if (!currentDialog) {
+					dialogDetailContainer.style.display = 'none';
+					noSelectionMessage.style.display = 'block';
+				} else {
+					dialogDetailContainer.style.display = 'block';
+					noSelectionMessage.style.display = 'none';
+				}
 			}
 		});
 	});
+	
+	// Expose the switchToTab function for programmatic tab switching
+	window.switchToTab = switchToTab;
 }
 
 // Initialize settings controls with proper saving
@@ -290,9 +482,9 @@ function initProperSettingsControls() {
 		enabled: document.getElementById('enabled'),
 		autoAccept: document.getElementById('autoAccept'),
 		smartMode: document.getElementById('smartMode'),
+		preferEssential: document.getElementById('preferEssential'),
 		cloudMode: document.getElementById('cloudMode'),
-		privacyMode: document.getElementById('privacyMode'),
-		gdprCompliance: document.getElementById('gdprCompliance'),
+		cloudModePremium: document.getElementById('cloudModePremium'),
 		devMode: document.getElementById('devMode')
 	};
 	
@@ -301,42 +493,505 @@ function initProperSettingsControls() {
 		const element = settingsElements[key];
 		if (element) {
 			element.addEventListener('change', function() {
-				// Load current settings first
-				loadSettings().then(settings => {
-					// Update the changed setting
-					settings[key] = this.checked;
-					
-					// Save the updated settings
-					saveSettings(settings).then(() => {
-						// Display success status
-						updateStatus(settings);
-						
-						// Update UI based on settings
-						updateUIFromSettings(settings);
-						
-						// If dev mode changed, update visibility
-						if (key === 'devMode') {
-							updateDevModeUI(settings.devMode);
+				// Special handling for premium features for non-premium users
+				if ((key === 'preferEssential' || key === 'cloudMode') && this.checked) {
+					// Check for test premium mode first
+					chrome.storage.local.get(['testPremiumMode'], (testResult) => {
+						if (testResult.testPremiumMode === true) {
+							// In test mode, allow premium features
+							updateSettingAndSave(key, this.checked);
+							return;
 						}
 						
-						// Send settings to background script
-						sendMessageToBackground({
-							action: 'settingsUpdated',
-							settings: settings
-						});
+						// Otherwise check actual premium status
+						sendMessageToBackgroundAsync({ action: 'checkPremiumStatus' })
+							.then(response => {
+								if (!response.isPremium) {
+									// Not premium, show message and redirect to account tab
+									this.checked = false;
+									alert('This is a premium feature. Please upgrade to access it.');
+									// Switch to the account tab using the global function
+									if (window.switchToTab) {
+										window.switchToTab('account');
+									}
+									return;
+								}
+								// User is premium, continue with normal settings update
+								updateSettingAndSave(key, this.checked);
+							})
+							.catch(error => {
+								console.error('Error checking premium status:', error);
+								// Revert on error
+								this.checked = false;
+							});
 					});
-				});
+					return;
+				}
+				
+				// Normal handling for other settings or premium users
+				updateSettingAndSave(key, this.checked);
 			});
 		}
 	});
+	
+	// Set up the advanced button preferences UI for premium users
+	setupButtonPreferences();
+	
+	// Helper function to update and save a setting
+	function updateSettingAndSave(key, value) {
+		// Load current settings first
+		loadSettings().then(settings => {
+			// Update the changed setting
+			settings[key] = value;
+			
+			// Save the updated settings
+			saveSettings(settings).then(() => {
+				// Display success status
+				updateStatus(settings);
+				
+				// Update UI based on settings
+				updateUIFromSettings(settings);
+				
+				// If dev mode changed, update visibility
+				if (key === 'devMode') {
+					updateDevModeUI(settings.devMode);
+				}
+				
+				// Send settings to background script
+				sendMessageToBackgroundAsync({
+					action: 'settingsUpdated',
+					settings: settings
+				}).catch(error => {
+					console.error('Error updating settings in background script:', error);
+				});
+			});
+		});
+	}
+}
+
+// Set up the draggable button preferences UI for premium users
+function setupButtonPreferences() {
+	const preferenceList = document.getElementById('buttonPreferenceList');
+	if (!preferenceList) return;
+	
+	// Get all preference items
+	const items = preferenceList.querySelectorAll('.preference-item');
+	
+	// Initialize drag functionality
+	items.forEach(item => {
+		// Make the entire item draggable for better usability
+		item.addEventListener('mousedown', function(e) {
+			// Skip if clicked on toggle or inside toggle
+			if (e.target.closest('.toggle')) {
+				return;
+			}
+			
+			// Check for test premium mode first
+			chrome.storage.local.get(['testPremiumMode'], (testResult) => {
+				if (testResult.testPremiumMode === true) {
+					// In test mode, allow drag and drop
+					initiateDrag(e);
+					return;
+				}
+				
+				// Otherwise check actual premium status
+				sendMessageToBackgroundAsync({ action: 'checkPremiumStatus' })
+					.then(response => {
+						if (!response.isPremium) {
+							alert('Reordering preferences is a premium feature. Please upgrade to use this functionality.');
+							return;
+						}
+						
+						// User is premium, allow drag and drop
+						initiateDrag(e);
+					})
+					.catch(error => {
+						console.error('Error checking premium status:', error);
+						// Don't allow drag on error
+					});
+			});
+		});
+		
+		// Handle toggle events for enabling/disabling button types
+		const toggle = item.querySelector('input[type="checkbox"]');
+		if (toggle) {
+			toggle.addEventListener('change', function() {
+				// Check for test premium mode first
+				chrome.storage.local.get(['testPremiumMode'], (testResult) => {
+					if (testResult.testPremiumMode === true) {
+						// In test mode, allow toggling
+						saveButtonPreferences();
+						return;
+					}
+					
+					// Otherwise check actual premium status
+					sendMessageToBackgroundAsync({ action: 'checkPremiumStatus' })
+						.then(response => {
+							if (!response.isPremium) {
+								alert('Customizing button preferences is a premium feature. Please upgrade to use this functionality.');
+								this.checked = !this.checked; // Revert change
+								return;
+							}
+							
+							// Save the enabled/disabled state
+							saveButtonPreferences();
+						})
+						.catch(error => {
+							console.error('Error checking premium status:', error);
+							this.checked = !this.checked; // Revert change
+						});
+				});
+			});
+		}
+		
+		// Function to handle the drag operation
+		function initiateDrag(e) {
+			// Don't initiate drag if clicking on the toggle
+			if (e.target.closest('.toggle')) {
+				return;
+			}
+			
+			e.preventDefault();
+			
+			// Add dragging class
+			item.classList.add('dragging');
+			
+			// Set dragging state on body
+			document.body.classList.add('dragging-active');
+			
+			// Get scroll position at start of drag
+			const initialScrollY = window.scrollY;
+			
+			// Get the initial position of the mouse relative to the item
+			const itemRect = item.getBoundingClientRect();
+			const offsetY = e.clientY - itemRect.top;
+			
+			// Clone the item for the drag effect
+			const clone = item.cloneNode(true);
+			clone.style.position = 'fixed'; // Use fixed positioning to avoid scroll issues
+			clone.style.width = `${itemRect.width}px`;
+			clone.style.opacity = '0.8';
+			clone.style.pointerEvents = 'none';
+			clone.style.zIndex = '1000';
+			document.body.appendChild(clone);
+			
+			// Set initial position
+			clone.style.top = `${e.clientY - offsetY}px`;
+			clone.style.left = `${itemRect.left}px`;
+			
+			// Initial position
+			let currentIndex = Array.from(items).indexOf(item);
+			
+			// Create a ghost placeholder for the top position
+			const ghostPlaceholder = document.createElement('div');
+			ghostPlaceholder.className = 'preference-item ghost-placeholder';
+			ghostPlaceholder.style.height = '0';
+			ghostPlaceholder.style.padding = '0';
+			ghostPlaceholder.style.overflow = 'hidden';
+			ghostPlaceholder.style.transition = 'height 0.2s ease';
+			preferenceList.insertBefore(ghostPlaceholder, preferenceList.firstChild);
+			
+			// Update clone position and check for reordering
+			function moveClone(e) {
+				// Update the clone position (fixed positioning)
+				clone.style.top = `${e.clientY - offsetY}px`;
+				clone.style.left = `${itemRect.left}px`;
+				
+				// Check if we need to reorder
+				const newIndex = findNewPosition(e.clientY);
+				if (newIndex !== currentIndex && newIndex !== -1) {
+					// Handle the ghost placeholder
+					if (newIndex === 0) {
+						ghostPlaceholder.style.height = `${item.offsetHeight}px`;
+						ghostPlaceholder.style.padding = '8px 10px';
+						ghostPlaceholder.style.borderBottom = '1px solid #eee';
+					} else {
+						ghostPlaceholder.style.height = '0';
+						ghostPlaceholder.style.padding = '0';
+						ghostPlaceholder.style.borderBottom = 'none';
+					}
+					
+					// Reorder the items in the DOM (skip index 0 when dealing with real items)
+					if (newIndex > 0) {
+						const referenceNode = newIndex < items.length ? 
+							items[newIndex < currentIndex ? newIndex : newIndex + 1] : null;
+						preferenceList.insertBefore(item, referenceNode);
+					}
+					
+					// Update current index
+					currentIndex = newIndex;
+				}
+			}
+			
+			// Find the new position based on mouse Y
+			function findNewPosition(y) {
+				// Check if we're above the first item (including the ghost)
+				const firstItemRect = preferenceList.firstChild.getBoundingClientRect();
+				if (y < firstItemRect.top + firstItemRect.height / 2) {
+					return 0; // Special index for the ghost placeholder at top
+				}
+				
+				// Skip the ghost placeholder when checking positions
+				for (let i = 0; i < items.length; i++) {
+					const rect = items[i].getBoundingClientRect();
+					const middle = rect.top + rect.height / 2;
+					
+					if (y < middle) {
+						return i + 1; // +1 to account for the ghost placeholder
+					}
+				}
+				return items.length;
+			}
+			
+			// Clean up when done
+			function stopDrag() {
+				document.removeEventListener('mousemove', moveClone);
+				document.removeEventListener('mouseup', stopDrag);
+				document.body.removeChild(clone);
+				item.classList.remove('dragging');
+				
+				// Remove dragging state from body
+				document.body.classList.remove('dragging-active');
+				
+				// Remove ghost placeholder
+				if (ghostPlaceholder && ghostPlaceholder.parentNode) {
+					preferenceList.removeChild(ghostPlaceholder);
+				}
+				
+				// If currentIndex is 0, move item to top
+				if (currentIndex === 0 && preferenceList.firstChild !== item) {
+					preferenceList.insertBefore(item, preferenceList.firstChild);
+				}
+				
+				// Save the new order
+				saveButtonPreferences();
+			}
+			
+			// Add event listeners for dragging
+			document.addEventListener('mousemove', moveClone);
+			document.addEventListener('mouseup', stopDrag);
+			
+			// Initial position of the clone
+			moveClone(e);
+		}
+	});
+	
+	// Save the current button preferences
+	function saveButtonPreferences() {
+		// Get the current order and enabled state
+		const items = document.querySelectorAll('.preference-item');
+		const order = [];
+		const enabled = {};
+		
+		items.forEach(item => {
+			const type = item.getAttribute('data-type');
+			const toggle = item.querySelector('input[type="checkbox"]');
+			
+			order.push(type);
+			enabled[type] = toggle.checked;
+		});
+		
+		// Load settings and update buttonPreferences
+		loadSettings().then(settings => {
+			settings.buttonPreferences = {
+				order: order,
+				enabled: enabled
+			};
+			
+			// Save the updated settings
+			saveSettings(settings).then(() => {
+				// Send settings to background script
+				sendMessageToBackgroundAsync({
+					action: 'settingsUpdated',
+					settings: settings
+				}).catch(error => {
+					console.error('Error updating settings in background script:', error);
+				});
+			});
+		});
+	}
 }
 
 // Disable premium features
 function disablePremiumFeatures() {
-	// Disable premium toggle inputs
-	document.getElementById('cloudMode').disabled = true;
-	document.getElementById('privacyMode').disabled = true;
-	document.getElementById('gdprCompliance').disabled = true;
+	// Check for developer test mode first
+	chrome.storage.local.get(['testPremiumMode'], (testResult) => {
+		// If test premium mode is enabled, treat as premium
+		if (testResult.testPremiumMode === true) {
+			handlePremiumUI(true);
+			return;
+		}
+		
+		// Otherwise check actual premium status
+		sendMessageToBackgroundAsync({ action: 'checkPremiumStatus' })
+			.then(response => {
+				handlePremiumUI(response.isPremium);
+			})
+			.catch(error => {
+				console.error('Error checking premium status:', error);
+				// On error, assume non-premium and show basic UI
+				handlePremiumUI(false);
+			});
+	});
+	
+	// Helper function to update the UI based on premium status
+	function handlePremiumUI(isPremium) {
+		// Get UI elements
+		const preferEssentialToggle = document.getElementById('preferEssential');
+		const cloudModeToggle = document.getElementById('cloudMode');
+		const cloudModePromoToggle = document.getElementById('cloudModePromo');
+		const premiumOverlay = document.querySelector('.premium-overlay');
+		const nonPremiumView = document.getElementById('nonPremiumView');
+		const premiumPromoSection = document.getElementById('premiumPromoSection');
+		const buttonPreferencesContainer = document.getElementById('buttonPreferencesContainer');
+		const cloudModeNote = document.getElementById('cloudModeNote');
+		
+		if (isPremium) {
+			// Premium user
+			// 1. Hide the premium promo section entirely
+			if (premiumPromoSection) premiumPromoSection.style.display = 'none';
+			
+			// 2. Show premium features in basic settings
+			if (buttonPreferencesContainer) buttonPreferencesContainer.style.display = 'block';
+			if (cloudModeNote) cloudModeNote.style.display = 'block';
+			
+			// 3. Cloud mode is always disabled (coming soon)
+			if (cloudModeToggle) {
+				cloudModeToggle.disabled = true;
+				cloudModeToggle.checked = false;
+			}
+			
+			// 4. Load buttonPreferences and update UI
+			loadSettings().then(settings => {
+				updateButtonPreferencesUI(settings.buttonPreferences);
+			});
+		} else {
+			// Non-premium user
+			// 1. Show premium promo section
+			if (premiumPromoSection) premiumPromoSection.style.display = 'block';
+			
+			// 2. Hide premium features in basic settings
+			if (buttonPreferencesContainer) buttonPreferencesContainer.style.display = 'none';
+			if (cloudModeNote) cloudModeNote.style.display = 'none';
+			
+			// 3. Hide Cloud Mode in basic settings or make it redirect to premium
+			if (cloudModeToggle) {
+				cloudModeToggle.style.display = 'none';
+			}
+			
+			// 4. Add click event to premium overlay to redirect to account tab
+			if (premiumOverlay && !premiumOverlay.hasClickListener) {
+				premiumOverlay.addEventListener('click', function() {
+					if (window.switchToTab) {
+						window.switchToTab('account');
+					}
+				});
+				premiumOverlay.hasClickListener = true;
+			}
+			
+			// 5. Add click handlers to all premium feature toggle labels in the non-premium view
+			if (nonPremiumView) {
+				const toggleContainers = nonPremiumView.querySelectorAll('.toggle-container');
+				toggleContainers.forEach(container => {
+					// Make all premium feature labels clickable
+					const toggleLabel = container.querySelector('.toggle-label');
+					if (toggleLabel && !toggleLabel.hasClickListener) {
+						toggleLabel.style.cursor = 'pointer';
+						// Add visual indication that these are clickable
+						toggleLabel.style.textDecoration = 'underline';
+						toggleLabel.style.color = '#673AB7';
+						
+						toggleLabel.addEventListener('click', function() {
+							if (window.switchToTab) {
+								window.switchToTab('account');
+							}
+						});
+						toggleLabel.hasClickListener = true;
+					}
+				});
+			}
+			
+			// 6. Load settings for the toggles
+			loadSettings().then(settings => {
+				if (preferEssentialToggle) {
+					preferEssentialToggle.checked = settings.preferEssential === true;
+				}
+				
+				if (cloudModePromoToggle) {
+					cloudModePromoToggle.checked = settings.cloudMode === true;
+				}
+			});
+		}
+	}
+}
+
+// Update the button preferences UI based on saved settings
+function updateButtonPreferencesUI(buttonPreferences) {
+	if (!buttonPreferences) return;
+	
+	const preferenceList = document.getElementById('buttonPreferenceList');
+	if (!preferenceList) return;
+	
+	// Remove all current items
+	while (preferenceList.firstChild) {
+		preferenceList.removeChild(preferenceList.firstChild);
+	}
+	
+	// Add items in the correct order
+	buttonPreferences.order.forEach(type => {
+		const enabled = buttonPreferences.enabled[type] !== false;
+		
+		// Create the preference item
+		const item = document.createElement('div');
+		item.className = 'preference-item';
+		item.setAttribute('data-type', type);
+		
+		// Add drag handle (changed from button to span)
+		const dragHandle = document.createElement('span');
+		dragHandle.className = 'drag-handle';
+		dragHandle.textContent = '≡';
+		item.appendChild(dragHandle);
+		
+		// Create label based on type (changed from button to span)
+		const label = document.createElement('span');
+		label.className = 'button-style';
+		switch(type) {
+			case 'essential':
+				label.textContent = 'Essential/Necessary Only';
+				break;
+			case 'reject':
+				label.textContent = 'Reject All';
+				break;
+			case 'accept':
+				label.textContent = 'Accept All';
+				break;
+			default:
+				label.textContent = type.charAt(0).toUpperCase() + type.slice(1);
+		}
+		item.appendChild(label);
+		
+		// Create toggle
+		const toggleLabel = document.createElement('label');
+		toggleLabel.className = 'toggle small';
+		
+		const toggleInput = document.createElement('input');
+		toggleInput.type = 'checkbox';
+		toggleInput.checked = enabled;
+		toggleInput.setAttribute('data-preference', type);
+		
+		const slider = document.createElement('span');
+		slider.className = 'slider';
+		
+		toggleLabel.appendChild(toggleInput);
+		toggleLabel.appendChild(slider);
+		item.appendChild(toggleLabel);
+		
+		// Add to list
+		preferenceList.appendChild(item);
+	});
+	
+	// Re-initialize the draggable functionality
+	setupButtonPreferences();
 }
 
 // Check current page for cookie dialogs and update the status
@@ -346,26 +1001,155 @@ function updateCurrentPageStatus() {
 	
 	const headerDiv = statusContainer.querySelector('.detection-header');
 	const contentDiv = statusContainer.querySelector('.detection-content');
+	if (!headerDiv || !contentDiv) return;
 	
-	if (headerDiv && contentDiv) {
-		// Set to loading state
-		headerDiv.textContent = 'Current Page Status';
-		contentDiv.innerHTML = '<p>Checking for cookie dialogs on this page...</p>';
-		
-		// Check for dialogs on the current page
-		sendMessageToActiveTab({ action: 'checkForCookieBoxes' })
-			.then(response => {
-				updatePageStatusUI(response);
+	// Set to loading state
+	headerDiv.textContent = 'Current Page Status';
+	contentDiv.innerHTML = '<p>Checking for cookie dialogs on this page...</p>';
+	
+	// First, check if we have any recent button clicks
+	sendMessageToBackgroundAsync({ action: 'getLastButtonClick' })
+		.then(buttonClickResponse => {
+			// Check current tab
+			chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
+				if (!tabs || tabs.length === 0) {
+					// Show error for no active tab
+					statusContainer.className = 'cookie-detection-status status-error';
+					headerDiv.textContent = 'No Active Tab';
+					contentDiv.innerHTML = '<p>Please open a website tab and try again.</p>' +
+						'<button id="checkCookieBoxes" class="action-button">Try Again</button>';
+					
+					// Add event listener to the button
+					const checkButton = contentDiv.querySelector('#checkCookieBoxes');
+					if (checkButton) {
+						checkButton.addEventListener('click', () => updateCurrentPageStatus());
+					}
+					return;
+				}
+				
+				const currentTab = tabs[0];
+				const url = currentTab.url || '';
+				
+				// Check if URL is a restricted one (browser internal pages)
+				if (url.startsWith('chrome:') || 
+					url.startsWith('chrome-extension:') || 
+					url.startsWith('devtools:') || 
+					url.startsWith('view-source:') ||
+					url.startsWith('about:')) {
+					
+					// Show browser page message
+					statusContainer.className = 'cookie-detection-status status-info';
+					headerDiv.textContent = 'Browser Page';
+					contentDiv.innerHTML = '<p>This appears to be a browser page or extension page.</p>' +
+						'<p class="small text-muted">Cookie detection only works on regular websites. Try opening a website to use this extension.</p>';
+					return;
+				}
+				
+				// Check if we have a recent button click for this tab
+				const lastClick = buttonClickResponse.lastClick;
+				if (lastClick && lastClick.tabId === currentTab.id) {
+					// We have a recent click for this tab - show that info
+					statusContainer.className = 'cookie-detection-status status-success';
+					headerDiv.textContent = 'Cookie Dialog Handled';
+					
+					// Format the timestamp
+					const clickTime = new Date(lastClick.timestamp);
+					const formattedTime = clickTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+					
+					// Create content for dialog found and handled
+					contentDiv.innerHTML = '';
+					createElement('p', null, 'A cookie consent dialog was detected and handled on this page.', contentDiv);
+					createElement('p', { className: 'small text-muted' }, 
+						`Button clicked: ${lastClick.buttonType || 'unknown'} (${formattedTime})`, contentDiv);
+					
+					if (lastClick.buttonText) {
+						createElement('p', { className: 'small text-muted' }, 
+							`Button text: "${lastClick.buttonText}"`, contentDiv);
+					}
+					
+					// Add scan again button
+					const scanButton = createElement('button', { 
+						className: 'action-button'
+					}, 'Scan Again', contentDiv);
+					
+					scanButton.addEventListener('click', proceedWithContentScriptCheck);
+				} else {
+					// For actual websites, proceed with the check
+					proceedWithContentScriptCheck();
+				}
+			});
+		})
+		.catch(error => {
+			console.error('Error checking for last button click:', error);
+			// If there's an error, just proceed with the content script check
+			proceedWithContentScriptCheck();
+		});
+	
+	// Function to proceed with checking for cookie dialogs
+	function proceedWithContentScriptCheck() {
+		// First try to inject content script preemptively
+		sendMessageToBackgroundAsync({ action: 'injectContentScript' })
+			.then(injectionResult => {
+				if (injectionResult.unsupportedTab) {
+					// This is a browser page
+					statusContainer.className = 'cookie-detection-status status-info';
+					headerDiv.textContent = 'Browser Page';
+					contentDiv.innerHTML = '<p>This appears to be a browser page or extension page.</p>' +
+						'<p class="small text-muted">Cookie detection only works on regular websites. Try opening a website to use this extension.</p>';
+					return;
+				}
+				
+				// Wait a moment for the script to initialize if injected
+				setTimeout(() => {
+					// Now try to check for cookie dialogs
+					sendMessageToActiveTabAsync({ action: 'checkForCookieBoxes' })
+						.then(response => {
+							// Check if this is an unsupported tab
+							if (response.unsupportedTab) {
+								statusContainer.className = 'cookie-detection-status status-info';
+								headerDiv.textContent = 'Browser Page';
+								contentDiv.innerHTML = '<p>This appears to be a browser page or extension page.</p>' +
+									'<p class="small text-muted">Cookie detection only works on regular websites. Try opening a website to use this extension.</p>';
+								return;
+							}
+							
+							// Normal response handling
+							updatePageStatusUI(response);
+						})
+						.catch(error => {
+							console.error('Error checking current page:', error);
+							
+							// Show error message
+							statusContainer.className = 'cookie-detection-status status-error';
+							headerDiv.textContent = 'Extension Issue';
+							contentDiv.innerHTML = 
+								'<p>Unable to access the page content.</p>' +
+								'<p class="small text-muted">This may happen if the page blocks extensions or has security restrictions. Try refreshing the page.</p>' +
+								'<button id="checkCookieBoxes" class="action-button">Try Again</button>';
+							
+							// Add event listener to the try again button
+							const checkButton = contentDiv.querySelector('#checkCookieBoxes');
+							if (checkButton) {
+								checkButton.addEventListener('click', () => updateCurrentPageStatus());
+							}
+						});
+				}, 500); // Give content script time to initialize
 			})
 			.catch(error => {
-				console.error('Error checking current page:', error);
-				contentDiv.innerHTML = '<p>Error checking for cookie dialogs.</p>' +
+				console.error('Error injecting content script:', error);
+				
+				// Show error message
+				statusContainer.className = 'cookie-detection-status status-error';
+				headerDiv.textContent = 'Extension Issue';
+				contentDiv.innerHTML = 
+					'<p>Failed to inject content script.</p>' +
+					'<p class="small text-muted">This may happen if the page blocks extensions or has security restrictions. Try refreshing the page.</p>' +
 					'<button id="checkCookieBoxes" class="action-button">Try Again</button>';
 				
-				// Add event listener to the button
+				// Add event listener to the try again button
 				const checkButton = contentDiv.querySelector('#checkCookieBoxes');
 				if (checkButton) {
-					checkButton.addEventListener('click', updateCurrentPageStatus);
+					checkButton.addEventListener('click', () => updateCurrentPageStatus());
 				}
 			});
 	}
@@ -428,7 +1212,7 @@ function updatePageStatusUI(response) {
 
 // Handle cookie action clicks (accept/customize)
 function handleCookieAction(action) {
-	sendMessageToActiveTab({ 
+	sendMessageToActiveTabAsync({ 
 		action: 'handleCookieAction',
 		cookieAction: action 
 	})
@@ -448,15 +1232,25 @@ function handleCookieAction(action) {
 
 // Check if user has premium features
 function checkPremiumStatus() {
-	sendMessageToBackground({ action: 'checkPremiumStatus' })
-		.then(response => {
-			updateSubscriptionUI(response.isPremium);
-		})
-		.catch(error => {
-			console.error('Failed to check premium status:', error);
-			// Default to free plan if check fails
-			updateSubscriptionUI(false);
-		});
+	// First check for developer test mode
+	chrome.storage.local.get(['testPremiumMode'], (testResult) => {
+		// If test premium mode is enabled, treat as premium
+		if (testResult.testPremiumMode === true) {
+			updateSubscriptionUI(true);
+			return;
+		}
+		
+		// Otherwise check actual premium status
+		sendMessageToBackgroundAsync({ action: 'checkPremiumStatus' })
+			.then(response => {
+				updateSubscriptionUI(response.isPremium);
+			})
+			.catch(error => {
+				console.error('Failed to check premium status:', error);
+				// Default to free plan if check fails
+				updateSubscriptionUI(false);
+			});
+	});
 }
 
 // Set up the account tab
@@ -465,6 +1259,7 @@ function setupAccountTab() {
 	const paymentButton = document.getElementById('paymentButton');
 	const consentToggle = document.getElementById('consentToggle');
 	const devModeToggle = document.getElementById('devMode');
+	const testPremiumModeToggle = document.getElementById('testPremiumMode');
 	
 	// Set up stripe billing management button
 	stripeManageButton.addEventListener('click', () => {
@@ -473,7 +1268,10 @@ function setupAccountTab() {
 	
 	// Set up payment button
 	paymentButton.addEventListener('click', () => {
-		sendMessageToBackground({ action: 'openPaymentPage' });
+		sendMessageToBackgroundAsync({ action: 'openPaymentPage' })
+			.catch(error => {
+				console.error('Error opening payment page:', error);
+			});
 	});
 	
 	// Set up consent toggle
@@ -488,6 +1286,35 @@ function setupAccountTab() {
 			});
 		});
 	});
+	
+	// Enable secret developer testing mode with Shift+Alt+D
+	let keySequence = [];
+	document.addEventListener('keydown', function(e) {
+		// Check for Shift+Alt+D
+		if (e.shiftKey && e.altKey && e.key === 'D') {
+			const devTestingSection = document.getElementById('devTestingSection');
+			if (devTestingSection) {
+				devTestingSection.style.display = devTestingSection.style.display === 'none' ? 'block' : 'none';
+			}
+		}
+	});
+	
+	// Set up test premium mode toggle
+	if (testPremiumModeToggle) {
+		// Check initial test premium status
+		chrome.storage.local.get(['testPremiumMode'], (result) => {
+			testPremiumModeToggle.checked = result.testPremiumMode === true;
+		});
+		
+		testPremiumModeToggle.addEventListener('change', function() {
+			// Store the test premium mode setting
+			chrome.storage.local.set({ testPremiumMode: this.checked }, () => {
+				console.log('Test premium mode ' + (this.checked ? 'enabled' : 'disabled'));
+				// Update UI immediately
+				disablePremiumFeatures();
+			});
+		});
+	}
 	
 	// Initial load of consent status
 	checkDataCollectionConsent();
@@ -565,25 +1392,28 @@ function displayHistoryDialogs(dialogs) {
 }
 
 function checkDataCollectionConsent() {
-	sendMessageToBackground({ action: 'getDataCollectionConsent' })
-		.then(response => {
+	getDataCollectionConsentAsync()
+		.then(consent => {
 			const consentStatus = document.getElementById('consentStatus');
 			const consentToggle = document.getElementById('consentToggle');
 			
-			if (response.consent) {
+			if (consent) {
 				consentStatus.textContent = 'Data collection is enabled';
 				consentToggle.textContent = 'Disable';
 			} else {
 				consentStatus.textContent = 'Data collection is disabled';
 				consentToggle.textContent = 'Enable';
 			}
+		})
+		.catch(error => {
+			console.error('Error checking data collection consent:', error);
 		});
 }
 
 function toggleDataCollectionConsent() {
-	sendMessageToBackground({ action: 'getDataCollectionConsent' })
-		.then(response => {
-			const newConsentValue = !response.consent;
+	getDataCollectionConsentAsync()
+		.then(consent => {
+			const newConsentValue = !consent;
 			
 			// If enabling consent, show the confirmation dialog
 			if (newConsentValue) {
@@ -593,19 +1423,20 @@ function toggleDataCollectionConsent() {
 			} else {
 				updateConsentValue(newConsentValue);
 			}
+		})
+		.catch(error => {
+			console.error('Error toggling data collection consent:', error);
 		});
 }
 
 function updateConsentValue(consentValue) {
-	sendMessageToBackground({ 
-		action: 'setDataCollectionConsent', 
-		consent: consentValue 
-	})
-	.then(response => {
-		if (response.success) {
+	setDataCollectionConsentAsync(consentValue)
+		.then(result => {
 			checkDataCollectionConsent();
-		}
-	});
+		})
+		.catch(error => {
+			console.error('Error updating consent value:', error);
+		});
 }
 
 function updateStatus(settings) {
@@ -632,11 +1463,52 @@ function updateStatus(settings) {
 }
 
 function checkForCookieBoxes() {
-	updateCurrentPageStatus();
+	// First show loading
+	const statusContainer = document.getElementById('cookieDetectionStatus');
+	if (statusContainer) {
+		clearElement(statusContainer);
+		const statusDiv = createElement('div', { className: 'cookie-detection-status status-loading' }, null, statusContainer);
+		const headerDiv = createElement('div', { className: 'detection-header' }, null, statusDiv);
+		createElement('span', null, 'Checking for Cookie Dialogs...', headerDiv);
+		const contentDiv = createElement('div', { className: 'detection-content' }, null, statusDiv);
+		createElement('p', null, 'Scanning the page for cookie consent dialogs...', contentDiv);
+	}
+	
+	// Check for cookie boxes on the current page
+	sendMessageToActiveTabAsync({ action: 'checkForCookieBoxes' })
+		.then(response => {
+			// Get the most recent button click to include in the UI
+			sendMessageToBackgroundAsync({ action: 'getLastButtonClick' })
+				.then(buttonClickResponse => {
+					// Combine the responses
+					const combinedResponse = {
+						...response,
+						lastClick: buttonClickResponse.lastClick
+					};
+					
+					// Update both current page status and cookie detection status
+					updateCurrentPageStatus();
+					updateCookieDetectionStatus(combinedResponse);
+				})
+				.catch(error => {
+					console.error('Error getting last button click:', error);
+					// Still update the UI with the response we have
+					updateCurrentPageStatus();
+					updateCookieDetectionStatus(response);
+				});
+		})
+		.catch(error => {
+			console.error('Error checking for cookie boxes:', error);
+			// Show error in the UI
+			updateCookieDetectionStatus({ 
+				dialogFound: false, 
+				error: error.message || 'Unknown error' 
+			});
+		});
 }
 
 function reportCookieBox() {
-	sendMessageToActiveTab({ action: 'reportCookieBox' })
+	sendMessageToActiveTabAsync({ action: 'reportCookieBox' })
 		.then(response => {
 			if (response.success) {
 				alert('Thank you for reporting this cookie dialog. Your submission helps improve detection for everyone.');
@@ -689,8 +1561,113 @@ function updateCookieDetectionStatus(response) {
 	// Clear existing status
 	clearElement(statusContainer);
 	
-	// Create a cookie detection status display
-	const statusDiv = createElement('div', { className: 'cookie-detection-status status-none' }, null, statusContainer);
+	// Check if dialog was detected
+	const dialogDetected = response && response.dialogFound;
+	
+	// If no dialog detected, check dialog history for current domain
+	if (!dialogDetected) {
+		chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+			if (tabs.length > 0) {
+				const currentUrl = tabs[0].url;
+				const currentDomain = currentUrl ? new URL(currentUrl).hostname : '';
+				
+				chrome.storage.local.get(['dialogHistory'], (result) => {
+					const history = result.dialogHistory || [];
+					
+					// Find dialogs for this domain
+					const domainDialogs = history.filter(dialog => 
+						dialog.domain && dialog.domain === currentDomain
+					);
+					
+					if (domainDialogs.length > 0) {
+						// Sort by most recent
+						domainDialogs.sort((a, b) => {
+							return new Date(b.capturedAt) - new Date(a.capturedAt);
+						});
+						
+						// Display most recent dialog info
+						const latestDialog = domainDialogs[0];
+						displayHistoryDialog(latestDialog, statusContainer);
+						return;
+					} else {
+						// No history found, display standard "not detected" UI
+						displayNotDetectedStatus(statusContainer);
+					}
+				});
+			} else {
+				// No active tab, display standard "not detected" UI
+				displayNotDetectedStatus(statusContainer);
+			}
+		});
+	} else {
+		// Dialog was detected in the current scan
+		displayDetectedDialog(response, statusContainer);
+	}
+}
+
+// Helper function to display a detected dialog
+function displayDetectedDialog(response, container) {
+	// Create a cookie detection status display with success class
+	const statusDiv = createElement('div', { 
+		className: 'cookie-detection-status status-success' 
+	}, null, container);
+	
+	// Create header
+	const headerDiv = createElement('div', { className: 'detection-header' }, null, statusDiv);
+	createElement('span', null, 'Cookie Dialog Detected', headerDiv);
+	
+	// Create content
+	const contentDiv = createElement('div', { className: 'detection-content' }, null, statusDiv);
+	createElement('p', null, 'A cookie consent dialog was detected and handled on this page.', contentDiv);
+	
+	// Add details if available
+	if (response.buttonClicked) {
+		createElement('p', { className: 'small text-muted' }, `Button clicked: ${response.buttonClicked}`, contentDiv);
+	}
+	
+	// Add a scan again button
+	const reportButton = createElement('button', { 
+		id: 'reportButton',
+		className: 'action-button'
+	}, 'Scan Again', contentDiv);
+	
+	reportButton.addEventListener('click', checkForCookieBoxes);
+}
+
+// Helper function to display a history dialog
+function displayHistoryDialog(dialog, container) {
+	// Create a cookie detection status display with history class
+	const statusDiv = createElement('div', { 
+		className: 'cookie-detection-status status-history' 
+	}, null, container);
+	
+	// Create header
+	const headerDiv = createElement('div', { className: 'detection-header' }, null, statusDiv);
+	createElement('span', null, 'Cookie Dialog In History', headerDiv);
+	
+	// Create content
+	const contentDiv = createElement('div', { className: 'detection-content' }, null, statusDiv);
+	createElement('p', null, 'A cookie consent dialog was previously detected on this domain.', contentDiv);
+	
+	// Add captured date
+	const captureDate = new Date(dialog.capturedAt).toLocaleString('en-GB');
+	createElement('p', { className: 'small text-muted' }, `Last detected: ${captureDate}`, contentDiv);
+	
+	// Add a scan again button
+	const reportButton = createElement('button', { 
+		id: 'reportButton',
+		className: 'action-button'
+	}, 'Scan Again', contentDiv);
+	
+	reportButton.addEventListener('click', checkForCookieBoxes);
+}
+
+// Helper function to display "not detected" status
+function displayNotDetectedStatus(container) {
+	// Create a cookie detection status display with none class
+	const statusDiv = createElement('div', { 
+		className: 'cookie-detection-status status-none' 
+	}, null, container);
 	
 	// Create header
 	const headerDiv = createElement('div', { className: 'detection-header' }, null, statusDiv);
@@ -698,7 +1675,7 @@ function updateCookieDetectionStatus(response) {
 	
 	// Create content
 	const contentDiv = createElement('div', { className: 'detection-content' }, null, statusDiv);
-	createElement('p', null, 'Visit a website with a cookie consent dialog to test the extension.', contentDiv);
+	createElement('p', null, 'No cookie consent dialog was detected on this page.', contentDiv);
 	
 	// Add a report button
 	const reportButton = createElement('button', { 
@@ -707,4 +1684,290 @@ function updateCookieDetectionStatus(response) {
 	}, 'Check for Cookie Dialog', contentDiv);
 	
 	reportButton.addEventListener('click', checkForCookieBoxes);
+}
+
+// Handle premium features toggle clicks - redirect to account page
+document.addEventListener('DOMContentLoaded', function() {
+	// Find all premium toggle inputs
+	const premiumToggles = document.querySelectorAll('.premium-toggle');
+	
+	// Add event listeners to premium toggles
+	premiumToggles.forEach(toggle => {
+		toggle.addEventListener('change', function(e) {
+			// If they try to enable it, prevent the toggle, switch to account tab
+			if (this.checked) {
+				// Prevent the checkbox from staying checked
+				this.checked = false;
+				
+				// Show a notification toast or alert
+				const status = document.getElementById('status');
+				status.textContent = 'This feature requires a premium subscription.';
+				status.style.backgroundColor = '#ffecb3';
+				status.style.color = '#ff6f00';
+				status.style.display = 'block';
+				
+				// Hide the notification after 3 seconds
+				setTimeout(() => {
+					status.style.display = 'none';
+				}, 3000);
+				
+				// Switch to the account tab
+				switchToTab('account');
+			}
+		});
+	});
+	
+	// Add click event for the upgrade button
+	const upgradeButton = document.getElementById('upgradeButton');
+	if (upgradeButton) {
+		upgradeButton.addEventListener('click', function() {
+			switchToTab('account');
+		});
+	}
+});
+
+// Helper function to switch to a specific tab
+function switchToTab(tabName) {
+	const tabs = document.querySelectorAll('.tab');
+	const tabContents = document.querySelectorAll('.tab-content');
+	
+	// Remove active class from all tabs
+	tabs.forEach(tab => tab.classList.remove('active'));
+	tabContents.forEach(content => content.classList.remove('active'));
+	
+	// Add active class to selected tab
+	const selectedTab = document.querySelector(`.tab[data-tab="${tabName}"]`);
+	const selectedContent = document.getElementById(`${tabName}-tab`);
+	
+	if (selectedTab) selectedTab.classList.add('active');
+	if (selectedContent) selectedContent.classList.add('active');
+}
+
+// History filter change
+if (historyFilter) {
+	historyFilter.addEventListener('change', () => {
+		// Import loadAllDialogs from history-ui.js
+		import('./src/ui/history-ui.js').then(module => {
+			// Call loadAllDialogs with the selected filter
+			module.loadAllDialogs(historyFilter.value).then(dialogs => {
+				// Display the filtered dialogs
+				module.displayAllDialogs(dialogs);
+			}).catch(error => {
+				console.error('Error loading filtered dialogs:', error);
+				// Show error message
+				const historyList = document.getElementById('historyList');
+				if (historyList) {
+					historyList.innerHTML = '<div class="no-dialogs">Error loading dialogs. Please try again.</div>';
+				}
+			});
+		}).catch(error => {
+			console.error('Error importing history-ui.js module:', error);
+			// Fallback to old method or show error
+			loadAllDialogs(historyFilter.value);
+		});
+	});
+} 
+
+// Add event listener for dialog details loaded event
+document.addEventListener('dialogDetailsLoaded', (event) => {
+	const dialog = event.detail;
+	
+	if (dialog) {
+		// Store current dialog in global variables
+		currentDialog = dialog;
+		currentDialogId = dialog.id;
+		
+		// Load settings to check if in dev mode
+		loadSettings(loadedSettings => {
+			settings = loadedSettings;
+			
+			// Display detected elements - pass dev mode setting
+			const elementsContainer = document.getElementById('detectedElementsList');
+			if (elementsContainer) {
+				displayDetectedElements(dialog, elementsContainer, settings.devMode);
+			}
+			
+			// Add action buttons if in dev mode
+			if (settings.devMode) {
+				const detailedInfo = document.getElementById('detailedInfo');
+				if (detailedInfo) {
+					addDialogActionButtons(detailedInfo);
+				}
+				
+				// Show classification containers in dev mode
+				const buttonClassificationsParent = document.querySelector('.button-classifications');
+				const optionClassificationsParent = document.querySelector('.option-classifications');
+				
+				if (buttonClassificationsParent) {
+					buttonClassificationsParent.style.display = 'block';
+				}
+				
+				if (optionClassificationsParent) {
+					optionClassificationsParent.style.display = 'block';
+				}
+			}
+		});
+	}
+});
+
+// Handle tab switching
+document.addEventListener('switchedToDetailsTab', (event) => {
+	const dialog = event.detail;
+	
+	if (dialog) {
+		// Load settings to check dev mode
+		loadSettings(loadedSettings => {
+			settings = loadedSettings;
+			
+			// Update element classifications display
+			const elementsContainer = document.getElementById('detectedElementsList');
+			if (elementsContainer) {
+				displayDetectedElements(dialog, elementsContainer, settings.devMode);
+			}
+			
+			// Ensure action buttons are displayed in dev mode
+			if (settings.devMode) {
+				const detailedInfo = document.getElementById('detailedInfo');
+				if (detailedInfo && !document.querySelector('.action-buttons-container')) {
+					addDialogActionButtons(detailedInfo);
+				}
+			}
+		});
+	}
+});
+
+/**
+ * Adds action buttons to the dialog detail view in dev mode
+ * @param {HTMLElement} container - The container to add the buttons to
+ */
+function addDialogActionButtons(container = null) {
+	// Default to detailedInfo if no container provided
+	const detailedInfo = container || document.getElementById('detailedInfo');
+	if (!detailedInfo) return;
+	
+	// Only add action buttons if not already present
+	if (document.querySelector('.action-buttons-container')) {
+		return;
+	}
+	
+	// Create action buttons container
+	const actionButtonsContainer = document.createElement('div');
+	actionButtonsContainer.className = 'action-buttons-container';
+	detailedInfo.appendChild(actionButtonsContainer);
+	
+	// View Source button
+	const viewSourceButton = document.createElement('button');
+	viewSourceButton.id = 'viewSourceBtn';
+	viewSourceButton.className = 'action-button';
+	viewSourceButton.innerHTML = '📄 View';
+	actionButtonsContainer.appendChild(viewSourceButton);
+	
+	// Copy Source button
+	const copySourceButton = document.createElement('button');
+	copySourceButton.id = 'copySourceBtn';
+	copySourceButton.className = 'action-button';
+	copySourceButton.innerHTML = '📋 Copy Source';
+	actionButtonsContainer.appendChild(copySourceButton);
+	
+	// Copy Link button
+	const copyLinkButton = document.createElement('button');
+	copyLinkButton.id = 'copyLinkBtn';
+	copyLinkButton.className = 'action-button';
+	copyLinkButton.innerHTML = '🔗 Copy Link';
+	actionButtonsContainer.appendChild(copyLinkButton);
+	
+	// Export JSON button
+	const exportButton = document.createElement('button');
+	exportButton.id = 'exportBtn';
+	exportButton.className = 'action-button';
+	exportButton.innerHTML = '📤 Export';
+	actionButtonsContainer.appendChild(exportButton);
+	
+	// Add event handlers for action buttons
+	viewSourceButton.addEventListener('click', () => {
+		if (currentDialog && currentDialog.html) {
+			// Create a proper HTML document blob
+			const htmlContent = `
+				<!DOCTYPE html>
+				<html>
+					<head>
+						<title>Cookie Dialog Source</title>
+						<meta charset="utf-8">
+						<style>
+							body { 
+								font-family: monospace; 
+								white-space: pre-wrap; 
+								padding: 20px;
+								line-height: 1.5;
+								font-size: 14px;
+							}
+							.line-numbers {
+								color: #888;
+								text-align: right;
+								padding-right: 10px;
+								user-select: none;
+							}
+							table {
+								border-collapse: collapse;
+								width: 100%;
+							}
+							td {
+								vertical-align: top;
+							}
+							.code-line:hover {
+								background-color: #f0f0f0;
+							}
+						</style>
+					</head>
+					<body>
+						<h2>Source Code for: ${currentDialog.domain}</h2>
+						${formatHtmlWithLineNumbers(escapeHtml(currentDialog.html))}
+					</body>
+				</html>
+			`;
+			
+			// Create a blob and open it in a new window
+			const blob = new Blob([htmlContent], {type: 'text/html'});
+			const url = URL.createObjectURL(blob);
+			window.open(url, '_blank');
+		}
+	});
+	
+	copySourceButton.addEventListener('click', () => {
+		if (currentDialog && currentDialog.html) {
+			navigator.clipboard.writeText(currentDialog.html)
+				.then(() => {
+					copySourceButton.innerHTML = '✓ Copied!';
+					setTimeout(() => { copySourceButton.innerHTML = '📋 Copy Source'; }, 2000);
+				})
+				.catch(err => console.error('Could not copy text: ', err));
+		}
+	});
+	
+	copyLinkButton.addEventListener('click', () => {
+		if (currentDialog && currentDialog.url) {
+			navigator.clipboard.writeText(currentDialog.url)
+				.then(() => {
+					copyLinkButton.innerHTML = '✓ Copied!';
+					setTimeout(() => { copyLinkButton.innerHTML = '🔗 Copy Link'; }, 2000);
+				})
+				.catch(err => console.error('Could not copy text: ', err));
+		}
+	});
+	
+	exportButton.addEventListener('click', () => {
+		if (currentDialog) {
+			const exportData = JSON.stringify(currentDialog, null, 2);
+			const blob = new Blob([exportData], { type: 'application/json' });
+			const url = URL.createObjectURL(blob);
+			
+			const a = document.createElement('a');
+			a.href = url;
+			a.download = `cookie-dialog-${currentDialog.domain}-${Date.now()}.json`;
+			document.body.appendChild(a);
+			a.click();
+			document.body.removeChild(a);
+			URL.revokeObjectURL(url);
+		}
+	});
 } 

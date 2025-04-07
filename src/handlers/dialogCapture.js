@@ -1,12 +1,15 @@
 // Import required modules
-const { sanitizeUrl } = require('../utils/privacy.js');
-const { detectRegion } = require('../modules/settings.js');
+import { sanitizeUrl } from '../utils/privacy.js';
+import { detectRegion, settings, openedByExtension } from '../modules/settings.js';
+import { findAcceptButton, findNecessaryCookiesButton } from '../utils/buttonFinders.js';
+import { clickElement } from '../utils/elementInteraction.js';
 
 /**
  * Capture a cookie dialog for analysis and reporting
  * @param {Element} element - The element (usually a button) that triggered the capture
  * @param {string} selector - The selector used to find the element
  * @param {string} method - The detection method used
+ * @returns {Object|null} The captured dialog data or null if an error occurred
  */
 function captureDialog(element, selector, method) {
 	try {
@@ -33,7 +36,7 @@ function captureDialog(element, selector, method) {
 		
 		if (selector.includes('necessary-only') || selector.includes('smart-detection-necessary')) {
 			buttonType = 'essential_only';
-		} else if (require('../modules/settings.js').settings.gdprCompliance && method.includes('gdpr')) {
+		} else if (settings.gdprCompliance && method.includes('gdpr')) {
 			buttonType = 'gdpr_necessary';
 		} else if (element.textContent.toLowerCase().includes('accept') || 
 				 element.textContent.toLowerCase().includes('agree') ||
@@ -68,15 +71,34 @@ function captureDialog(element, selector, method) {
 			region: detectRegion(window.location.hostname)
 		};
 		
-		// Add to captured dialogs cache
-		const { capturedDialogs } = require('../modules/cloudDatabase.js');
-		capturedDialogs.push(dialog);
+		// Add to captured dialogs cache - safely handle dynamic import
+		try {
+			import('../modules/cloudDatabase.js').then(module => {
+				try {
+					if (module && Array.isArray(module.capturedDialogs)) {
+						module.capturedDialogs.push(dialog);
+					}
+				} catch (error) {
+					console.error('Error adding dialog to capturedDialogs:', error);
+				}
+			}).catch(error => {
+				console.error('Error importing cloudDatabase module:', error);
+			});
+		} catch (error) {
+			console.error('Error with dynamic import of cloudDatabase:', error);
+		}
 		
-		// Notify the background script that we captured a dialog
-		chrome.runtime.sendMessage({ 
-			action: 'dialogCaptured', 
-			dialog: dialog
-		});
+		// Safely notify the background script that we captured a dialog
+		if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+			try {
+				chrome.runtime.sendMessage({ 
+					action: 'dialogCaptured', 
+					dialog: dialog
+				});
+			} catch (error) {
+				console.error('Error sending message to background script:', error);
+			}
+		}
 		
 		return dialog;
 	} catch (error) {
@@ -93,12 +115,6 @@ function captureDialog(element, selector, method) {
  * @returns {boolean} Whether processing was successful
  */
 function processCookieElement(element, selector, method) {
-	// Import required dependencies
-	const { settings, openedByExtension } = require('../modules/settings.js');
-	const { detectRegion } = require('../modules/settings.js');
-	const { findAcceptButton, findNecessaryCookiesButton } = require('../utils/buttonFinders.js');
-	const { clickElement } = require('../utils/elementInteraction.js');
-	
 	// Skip auto-accepting if this tab was opened by our extension
 	if (openedByExtension && settings.autoAccept) {
 		console.log('Cookie Consent Manager: Skipping auto-accept on tab opened by extension');
@@ -175,7 +191,8 @@ function processCookieElement(element, selector, method) {
 	return false;
 }
 
-module.exports = {
+// Export as ES modules
+export {
 	captureDialog,
 	processCookieElement
 }; 

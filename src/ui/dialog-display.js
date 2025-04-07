@@ -78,92 +78,228 @@ export function displayDetectionStatus(response, container) {
 
 /**
  * Display detected cookie dialog elements
- * @param {Object} response - Detection response
+ * @param {Object} dialog - Dialog object with detected elements
  * @param {Element} container - Container to display elements
+ * @param {boolean} devMode - Whether dev mode is enabled
  */
-export function displayDetectedElements(response, container) {
-	if (!container || !response.elements || response.elements.length === 0) {
+export function displayDetectedElements(dialog, container, devMode) {
+	// Check if we have a valid dialog with detected elements
+	if (!container) {
+		console.error('Container is missing for displaying detected elements');
 		return;
 	}
+	
+	// Ensure dialog has elements property, even if empty array
+	const elements = dialog?.detectedElements || [];
 	
 	// Clear container
 	clearElement(container);
 	
-	// Create elements header
-	createElement('h3', null, 'Detected Elements', container);
+	// If no elements detected, show a message
+	if (elements.length === 0) {
+		container.innerHTML = '<div class="no-elements-message">No elements detected in this dialog.</div>';
+		return;
+	}
 	
-	// Create elements list
-	const elementsList = createElement('div', { className: 'elements-list' }, null, container);
+	// Check for dev mode parameter or detect from DOM
+	// If not provided, detect by looking at the body class
+	if (devMode === undefined) {
+		devMode = !document.body.classList.contains('simple-mode');
+	}
 	
-	// Add each element
-	response.elements.forEach((element, index) => {
-		const elementRow = createElement('div', { className: 'element-row' }, null, elementsList);
+	console.log(`Displaying ${elements.length} detected elements in ${devMode ? 'dev' : 'regular'} mode`);
+	
+	// Get classification containers
+	const buttonClassificationsContainer = document.getElementById('buttonClassificationsList');
+	const optionClassificationsContainer = document.getElementById('optionClassificationsList');
+	
+	// Get parent containers
+	const buttonClassificationsParent = buttonClassificationsContainer?.parentElement;
+	const optionClassificationsParent = optionClassificationsContainer?.parentElement;
+	
+	// Handle visibility of classification containers based on dev mode
+	if (buttonClassificationsParent) {
+		buttonClassificationsParent.style.display = devMode ? 'block' : 'none';
+	}
+	
+	if (optionClassificationsParent) {
+		optionClassificationsParent.style.display = devMode ? 'block' : 'none';
+	}
+	
+	// Different display based on dev mode
+	if (devMode) {
+		// DEV MODE - Show detailed element information
 		
-		// Element number
-		createElement('div', { className: 'element-number' }, `#${index + 1}`, elementRow);
+		// Add summary info
+		const summaryInfo = createElement('div', { className: 'elements-summary' }, null, container);
 		
-		// Element type
-		createElement('div', { className: 'element-type' }, element.type || 'Unknown', elementRow);
+		// Count buttons and options
+		const buttons = elements.filter(el => el.type?.toLowerCase().includes('button') || el.tagName === 'BUTTON');
+		const options = elements.filter(el => el.type?.toLowerCase().includes('option') || el.tagName === 'INPUT' && ['checkbox', 'radio'].includes(el.inputType));
+		const links = elements.filter(el => el.tagName === 'A' || el.isLink);
 		
-		// Element selector
-		createElement('div', { className: 'element-selector' }, element.selector || '', elementRow);
+		// Create summary text
+		summaryInfo.innerHTML = `
+			<p>Total elements: ${elements.length}</p>
+			<p>Buttons: ${buttons.length}</p>
+			<p>Options: ${options.length}</p>
+			<p>Links: ${links.length}</p>
+		`;
 		
-		// Element actions
-		const actionsDiv = createElement('div', { className: 'element-actions' }, null, elementRow);
+		// Create the heading row
+		const headingRow = createElement('div', { className: 'detected-element-heading' }, null, container);
+		headingRow.innerHTML = `
+			<div class="element-column">Element</div>
+			<div class="type-column">Type</div>
+			<div class="action-column">Action</div>
+		`;
 		
-		// Add highlight button
-		const highlightButton = createElement('button', { 
-			className: 'action-button small',
-			dataset: { elementIndex: index }
-		}, 'Highlight', actionsDiv);
-		
-		// Add click button
-		const clickButton = createElement('button', { 
-			className: 'action-button small',
-			style: 'margin-left: 5px;',
-			dataset: { elementIndex: index }
-		}, 'Click', actionsDiv);
-		
-		// Add event listeners
-		highlightButton.addEventListener('click', () => {
-			// Send message to highlight element
-			chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-				if (tabs.length > 0) {
-					chrome.tabs.sendMessage(tabs[0].id, {
-						action: 'highlightElement',
-						elementIndex: index
-					});
-				}
+		// Create a row for each detected element
+		elements.forEach((element, index) => {
+			const row = createElement('div', { className: 'detected-element-row' }, null, container);
+			
+			// Text column with element info
+			const elementText = createElement('div', { className: 'element-column' }, null, row);
+			
+			// Create text content with appropriate information
+			let displayText = element.text || element.value || 'No text';
+			if (element.tagName) {
+				displayText = `<${element.tagName.toLowerCase()}> ${displayText}`;
+			}
+			
+			// Add href for links
+			if (element.href) {
+				displayText += `<br><span class="element-href">${element.href}</span>`;
+			}
+			
+			elementText.innerHTML = displayText;
+			
+			// Type selection column
+			const typeColumn = createElement('div', { className: 'type-column' }, null, row);
+			
+			if (element.type) {
+				typeColumn.textContent = element.type;
+			} else {
+				typeColumn.textContent = 'Unknown';
+				typeColumn.style.color = '#999';
+			}
+			
+			// Action column
+			const actionColumn = createElement('div', { className: 'action-column' }, null, row);
+			
+			// Add highlight button
+			const highlightButton = createElement('button', { 
+				className: 'action-button small',
+				dataset: { elementIndex: index }
+			}, 'Highlight', actionColumn);
+			
+			// Add click button
+			const clickButton = createElement('button', { 
+				className: 'action-button small',
+				style: 'margin-left: 5px;',
+				dataset: { elementIndex: index }
+			}, 'Click', actionColumn);
+			
+			// Add event listeners
+			highlightButton.addEventListener('click', () => {
+				// Send message to highlight element
+				chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+					if (tabs.length > 0) {
+						chrome.tabs.sendMessage(tabs[0].id, {
+							action: 'highlightElement',
+							elementIndex: index
+						});
+					}
+				});
+			});
+			
+			clickButton.addEventListener('click', () => {
+				// Send message to click element
+				chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+					if (tabs.length > 0) {
+						chrome.tabs.sendMessage(tabs[0].id, {
+							action: 'clickElement',
+							elementIndex: index
+						});
+					}
+				});
 			});
 		});
+	} else {
+		// REGULAR MODE - Just show important links
 		
-		clickButton.addEventListener('click', () => {
-			// Send message to click element
-			chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-				if (tabs.length > 0) {
-					chrome.tabs.sendMessage(tabs[0].id, {
-						action: 'clickElement',
-						elementIndex: index
-					});
+		// Extract important links
+		const importantLinks = elements.filter(element => isPrivacyOrSettingsLink(element));
+		
+		// Display important links if found
+		if (importantLinks.length > 0) {
+			// Create a header for the links section
+			createElement('h4', null, 'Privacy & Settings Links', container);
+			
+			// Create a list for links
+			const linksList = createElement('ul', {
+				style: 'padding-left: 20px; margin-top: 5px;'
+			}, null, container);
+			
+			// Add each link to the list
+			importantLinks.forEach(link => {
+				const listItem = createElement('li', null, null, linksList);
+				
+				if (link.href && link.text) {
+					// Create an actual link if we have href
+					createElement('a', {
+						href: link.href,
+						target: '_blank',
+						style: 'text-decoration: underline; color: #0066cc;'
+					}, link.text, listItem);
+				} else {
+					// Otherwise just show the text
+					createElement('span', null, link.text || 'Unnamed link', listItem);
 				}
 			});
-		});
-	});
-	
-	// Button type detection
-	if (response.buttonTypes) {
-		const buttonSection = createElement('div', { className: 'button-section' }, null, container);
-		createElement('h4', null, 'Detected Button Types', buttonSection);
-		
-		// Create button type list
-		const buttonList = createElement('div', { className: 'button-type-list' }, null, buttonSection);
-		
-		// Add each button type
-		for (const [type, count] of Object.entries(response.buttonTypes)) {
-			createElement('div', { className: 'button-type-item' }, 
-				`${type}: ${count}`, buttonList);
+		} else {
+			// Show "no links found" message in non-dev mode
+			createElement('p', {
+				style: 'color: #666; font-style: italic; margin-top: 10px;'
+			}, 'No privacy policy, cookie settings or terms links found.', container);
 		}
 	}
+}
+
+/**
+ * Check if an element is likely a privacy or settings link
+ * @param {Object} element - Element to check
+ * @returns {boolean} True if element is likely a privacy/settings link
+ */
+function isPrivacyOrSettingsLink(element) {
+	if (!element.text) return false;
+	
+	const textLower = element.text.toLowerCase();
+	const href = element.href ? element.href.toLowerCase() : '';
+	const tagName = element.tagName ? element.tagName.toLowerCase() : '';
+	
+	// Keywords that suggest privacy/settings related content
+	const keywords = [
+		'privacy', 'policy', 'cookie', 'terms', 'conditions', 
+		'preferences', 'settings', 'more info', 'learn more', 
+		'manage', 'customize', 'customise', 'personal data',
+		'data protection', 'choices', 'opt', 'preference', 'gdpr'
+	];
+	
+	// Check text content for keywords
+	const hasKeywordInText = keywords.some(keyword => textLower.includes(keyword));
+	
+	// Check href for keywords if it exists
+	const hasKeywordInHref = href && keywords.some(keyword => href.includes(keyword));
+	
+	// Check if it's a link or button
+	const isLinkOrButton = 
+		tagName === 'a' || 
+		tagName === 'button' ||
+		element.role === 'button' || 
+		element.isButton;
+	
+	return isLinkOrButton && (hasKeywordInText || hasKeywordInHref);
 }
 
 /**

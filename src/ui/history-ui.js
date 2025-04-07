@@ -7,18 +7,73 @@ import { getDialogHistory, markDialogAsReviewed } from '../modules/storage.js';
 
 /**
  * Load all dialogs from history
- * @returns {Promise} Promise that resolves with dialogs
+ * @param {string} filterType - Type of filter to apply (all, auto_accepted, ignored, current_page)
+ * @returns {Promise} Promise that resolves with filtered dialogs
  */
-export function loadAllDialogs() {
+export function loadAllDialogs(filterType = 'all') {
 	return new Promise((resolve) => {
 		getDialogHistory((dialogs) => {
-			resolve(dialogs);
+			// Debug: Log what we're getting
+			console.log(`Loading dialogs with filter: ${filterType}. Total: ${dialogs.length}`);
+			
+			if (filterType === 'all') {
+				resolve(dialogs);
+				return;
+			}
+			
+			// Get current page URL for filtering
+			chrome.tabs.query({active: true, currentWindow: true}, (tabs) => {
+				const currentPageUrl = tabs && tabs[0] ? tabs[0].url : '';
+				let filteredDialogs = [];
+				
+				switch(filterType) {
+					case 'auto_accepted':
+						// Filter to only show auto-accepted dialogs
+						filteredDialogs = dialogs.filter(dialog => 
+							dialog.method && (
+								dialog.method.includes('auto') || 
+								dialog.method.includes('cloud') || 
+								dialog.method.includes('smart')
+							)
+						);
+						break;
+					case 'ignored':
+						// Filter to show dialogs that were NOT auto-accepted
+						filteredDialogs = dialogs.filter(dialog => 
+							!dialog.method || (
+								!dialog.method.includes('auto') && 
+								!dialog.method.includes('cloud') && 
+								!dialog.method.includes('smart')
+							)
+						);
+						break;
+					case 'current_page':
+						// Filter to show only dialogs from the current domain
+						filteredDialogs = dialogs.filter(dialog => {
+							if (!dialog.domain || !currentPageUrl) return false;
+							
+							try {
+								const currentDomain = new URL(currentPageUrl).hostname;
+								return currentDomain.includes(dialog.domain) || dialog.domain.includes(currentDomain);
+							} catch (e) {
+								console.error('Error parsing URL:', e);
+								return false;
+							}
+						});
+						break;
+					default:
+						filteredDialogs = dialogs;
+				}
+				
+				console.log(`Filter ${filterType} resulted in ${filteredDialogs.length} dialogs`);
+				resolve(filteredDialogs);
+			});
 		});
 	});
 }
 
 /**
- * Display captured cookie dialogs in history panel
+ * Display captured cookie dialogs in history panel with pagination
  * @param {Array} dialogs - Array of dialog objects
  */
 export function displayAllDialogs(dialogs) {
@@ -41,32 +96,127 @@ export function displayAllDialogs(dialogs) {
 		return dateB - dateA;
 	});
 	
-	// Render the dialog items
-	renderDialogItems(sortedDialogs, historyListContainer);
+	// Create a container for the items
+	const itemsContainer = createElement('div', { id: 'historyItemsContainer' }, null, historyListContainer);
 	
-	// Add click event to items
-	const items = historyListContainer.querySelectorAll('.history-item');
-	items.forEach(item => {
-		item.addEventListener('click', () => {
-			// Remove active class from all items
-			items.forEach(i => i.classList.remove('active'));
+	// Initial display count and total
+	const initialCount = 20;
+	const totalDialogs = sortedDialogs.length;
+	const initialDialogs = sortedDialogs.slice(0, initialCount);
+	
+	// Render initial set of dialog items
+	renderDialogBatch(initialDialogs, itemsContainer);
+	
+	// Add Load More button if there are more dialogs
+	if (totalDialogs > initialCount) {
+		const loadMoreContainer = createElement('div', { 
+			className: 'load-more-container',
+			style: 'text-align: center; margin-top: 15px;'
+		}, null, historyListContainer);
+		
+		const loadMoreButton = createElement('button', {
+			className: 'action-button',
+			id: 'loadMoreDialogs'
+		}, `Load More (${initialCount} of ${totalDialogs} shown)`, loadMoreContainer);
+		
+		// Track how many are currently shown
+		let currentlyShown = initialCount;
+		
+		// Add click event to load more
+		loadMoreButton.addEventListener('click', () => {
+			// Calculate how many more to load
+			const loadCount = 20;
+			const nextBatch = sortedDialogs.slice(currentlyShown, currentlyShown + loadCount);
 			
-			// Add active class to clicked item
-			item.classList.add('active');
+			// Render the next batch
+			renderDialogBatch(nextBatch, itemsContainer);
 			
-			// Get dialog data
-			const dialogId = item.dataset.id;
-			const dialog = sortedDialogs.find(d => d.id === dialogId);
+			// Update count
+			currentlyShown += nextBatch.length;
 			
-			if (dialog) {
-				displayDialogDetails(dialog);
+			// Update button text or hide if all loaded
+			if (currentlyShown >= totalDialogs) {
+				loadMoreContainer.style.display = 'none';
+			} else {
+				loadMoreButton.textContent = `Load More (${currentlyShown} of ${totalDialogs} shown)`;
 			}
 		});
-	});
+	}
 	
-	// Click the first item to display its details
-	if (items.length > 0) {
-		items[0].click();
+	// Helper function to render a batch of dialogs and set up their click handlers
+	function renderDialogBatch(dialogBatch, container) {
+		dialogBatch.forEach(dialog => {
+			const reviewClass = dialog.reviewed ? 'reviewed' : 'not-reviewed';
+			const dateStr = dialog.capturedAt 
+				? new Date(dialog.capturedAt).toLocaleString('en-GB') 
+				: 'Unknown date';
+			
+			const item = createElement('div', {
+				className: `history-item ${reviewClass}`,
+				dataset: { id: dialog.id }
+			}, null, container);
+			
+			// Add domain/URL
+			createElement('div', { className: 'history-item-domain' }, 
+				(dialog.domain || (dialog.url ? new URL(dialog.url).hostname : 'Unknown')), item);
+			
+			// Add detection method without "Method: " prefix
+			const methodDisplay = dialog.method 
+				? dialog.method  // Removed "Method: " prefix
+				: 'manual';
+			
+			// Create method and date in the same container to reduce spacing
+			const metaContainer = createElement('div', { 
+				className: 'history-item-meta',
+				style: 'display: flex; justify-content: space-between; font-size: 12px; color: #666; margin-top: 2px;'
+			}, null, item);
+			
+			// Add method
+			createElement('div', { className: 'history-item-method' }, methodDisplay, metaContainer);
+			
+			// Add date
+			createElement('div', { className: 'history-item-date' }, dateStr, metaContainer);
+			
+			// Add click handler to this specific item
+			item.addEventListener('click', () => {
+				// Remove active class from all items
+				document.querySelectorAll('.history-item').forEach(i => i.classList.remove('active'));
+				
+				// Add active class to clicked item
+				item.classList.add('active');
+				
+				// Display dialog details
+				displayDialogDetails(dialog);
+				
+				// Switch to details tab
+				switchToDetailsTab();
+			});
+		});
+	}
+	
+	// Helper function to switch to details tab
+	function switchToDetailsTab() {
+		// Find all tabs and tab contents
+		const tabs = document.querySelectorAll('.tab');
+		const tabContents = document.querySelectorAll('.tab-content');
+		
+		// Remove active class from all tabs and contents
+		tabs.forEach(tab => tab.classList.remove('active'));
+		tabContents.forEach(content => content.classList.remove('active'));
+		
+		// Activate the details tab
+		const detailsTab = document.querySelector('.tab[data-tab="details"]');
+		const detailsContent = document.getElementById('details-tab');
+		
+		if (detailsTab) detailsTab.classList.add('active');
+		if (detailsContent) detailsContent.classList.add('active');
+		
+		// Also show the dialog details container and hide the "no selection" message
+		const dialogDetailContainer = document.getElementById('dialogDetailContainer');
+		const noSelectionMessage = document.getElementById('noSelectionMessage');
+		
+		if (dialogDetailContainer) dialogDetailContainer.style.display = 'block';
+		if (noSelectionMessage) noSelectionMessage.style.display = 'none';
 	}
 }
 
@@ -79,7 +229,7 @@ export function renderDialogItems(dialogs, container) {
 	dialogs.forEach(dialog => {
 		const reviewClass = dialog.reviewed ? 'reviewed' : 'not-reviewed';
 		const dateStr = dialog.capturedAt 
-			? new Date(dialog.capturedAt).toLocaleString() 
+			? new Date(dialog.capturedAt).toLocaleString('en-GB') 
 			: 'Unknown date';
 		
 		const item = createElement('div', {
@@ -89,114 +239,160 @@ export function renderDialogItems(dialogs, container) {
 		
 		// Add domain/URL
 		createElement('div', { className: 'history-item-domain' }, 
-			(dialog.domain || new URL(dialog.url).hostname), item);
+			(dialog.domain || (dialog.url ? new URL(dialog.url).hostname : 'Unknown')), item);
 		
 		// Add detection method
-		const methodDisplay = dialog.detectionMethod 
-			? `Detected via: ${dialog.detectionMethod}` 
-			: 'Automatic detection';
+		const methodDisplay = dialog.method 
+			? `Method: ${dialog.method}` 
+			: 'Manual detection';
 		createElement('div', { className: 'history-item-method' }, methodDisplay, item);
 		
 		// Add date
 		createElement('div', { className: 'history-item-date' }, dateStr, item);
+		
+		// Add indicators for auto-accepted and current page
+		const indicators = createElement('div', { className: 'indicators' }, null, item);
+		
+		// Check if this is auto-accepted
+		if (dialog.method && (
+			dialog.method.includes('auto') || 
+			dialog.method.includes('cloud') || 
+			dialog.method.includes('smart')
+		)) {
+			createElement('span', { 
+				className: 'site-indicator auto-accepted',
+				title: 'Auto-accepted'
+			}, '', indicators);
+		}
+		
+		// Check if this is from the current page - will be determined when displaying
+		chrome.tabs.query({active: true, currentWindow: true}, (tabs) => {
+			if (tabs && tabs[0] && dialog.domain) {
+				try {
+					const currentUrl = tabs[0].url;
+					const currentDomain = new URL(currentUrl).hostname;
+					
+					if (currentDomain.includes(dialog.domain) || dialog.domain.includes(currentDomain)) {
+						createElement('span', { 
+							className: 'site-indicator current-page',
+							title: 'Current page'
+						}, '', indicators);
+					}
+				} catch (e) {
+					console.error('Error checking current page:', e);
+				}
+			}
+		});
 	});
 }
 
 /**
- * Display details for a specific dialog
+ * Display details for a specific cookie dialog
  * @param {Object} dialog - Dialog object to display
  */
-function displayDialogDetails(dialog) {
-	const detailsContainer = document.getElementById('dialogDetails');
-	if (!detailsContainer) return;
+export function displayDialogDetails(dialog) {
+	const dialogDetailContainer = document.getElementById('dialogDetailContainer');
+	const noSelectionMessage = document.getElementById('noSelectionMessage');
+	const detailedInfo = document.getElementById('detailedInfo');
+	const buttonClassificationsList = document.getElementById('buttonClassificationsList');
+	const optionClassificationsList = document.getElementById('optionClassificationsList');
 	
-	// Clear previous details
-	clearElement(detailsContainer);
+	if (!dialogDetailContainer || !detailedInfo) {
+		console.error('Dialog detail container not found');
+		return;
+	}
 	
-	// Create details wrapper
-	const detailsWrapper = createElement('div', { className: 'details-wrapper' }, null, detailsContainer);
+	// Show dialog details and hide no selection message
+	dialogDetailContainer.style.display = 'block';
+	if (noSelectionMessage) noSelectionMessage.style.display = 'none';
 	
-	// Dialog info
-	const infoSection = createElement('div', { className: 'detail-section' }, null, detailsWrapper);
-	createElement('h3', null, 'Dialog Information', infoSection);
+	// Clear previous content
+	clearElement(detailedInfo);
+	if (buttonClassificationsList) clearElement(buttonClassificationsList);
+	if (optionClassificationsList) clearElement(optionClassificationsList);
+	
+	// 1. Create info card with dialog details
+	const infoCard = createElement('div', { className: 'info-card' }, null, detailedInfo);
+	
+	// Header
+	createElement('div', { className: 'info-card-header' }, 'Cookie Dialog Information', infoCard);
+	
+	// Content
+	const infoContent = createElement('div', { className: 'info-card-content' }, null, infoCard);
+	
+	// Format date
+	const captureDate = dialog.capturedAt 
+		? new Date(dialog.capturedAt).toLocaleString('en-GB', {
+			day: 'numeric',
+			month: 'short',
+			year: 'numeric',
+			hour: '2-digit',
+			minute: '2-digit'
+		}) 
+		: 'Unknown';
 	
 	// Create detail items
-	addDetailItem('URL', dialog.url, infoSection);
-	addDetailItem('Domain', dialog.domain || new URL(dialog.url).hostname, infoSection);
-	addDetailItem('Detected On', new Date(dialog.capturedAt).toLocaleString(), infoSection);
-	addDetailItem('Detection Method', dialog.detectionMethod || 'Automatic detection', infoSection);
+	const detailItems = [
+		{ icon: '🌐', label: 'Domain', value: dialog.domain || 'Unknown' },
+		{ icon: '🔗', label: 'URL', value: dialog.url ? 
+			`<a href="${dialog.url}" target="_blank" title="${dialog.url}">${dialog.url}</a>` : 'Not available' },
+		{ icon: '⚙️', label: 'Method', value: dialog.method || 'Manual' },
+		{ icon: '📍', label: 'Region', value: dialog.region || 'Not detected' },
+		{ icon: '🕒', label: 'Captured', value: captureDate },
+		{ icon: '✓', label: 'Reviewed', value: dialog.reviewed ? 'Yes' : 'No' }
+	];
 	
-	// Button information
-	const buttonsSection = createElement('div', { className: 'detail-section' }, null, detailsWrapper);
-	createElement('h3', null, 'Button Details', buttonsSection);
+	// Add each detail item
+	detailItems.forEach(item => {
+		const detailItem = createElement('div', { className: 'detail-item' }, null, infoContent);
+		createElement('span', { className: 'detail-icon' }, item.icon, detailItem);
+		createElement('strong', null, `${item.label}:`, detailItem);
+		const valueSpan = createElement('span', { className: 'detail-value' }, null, detailItem);
+		valueSpan.innerHTML = item.value; // Using innerHTML to support links
+	});
 	
-	if (dialog.buttonType) {
-		const buttonTypeText = getButtonTypeDisplayText(dialog.buttonType);
-		addDetailItem('Button Type', buttonTypeText, buttonsSection);
-	}
+	// Store dialog globally for later reference
+	window.currentDialog = dialog;
+	window.currentDialogId = dialog.id;
 	
-	if (dialog.buttonText) {
-		addDetailItem('Button Text', dialog.buttonText, buttonsSection);
-	}
+	// Now we need to call a function from popup_fixed.js to handle the element classifications
+	// This can be done via a custom event since we can't directly import it
+	const dialogDetailsEvent = new CustomEvent('dialogDetailsLoaded', { detail: dialog });
+	document.dispatchEvent(dialogDetailsEvent);
+}
+
+/**
+ * Switch to the details tab and update UI
+ */
+export function switchToDetailsTab() {
+	// Find all tabs and tab contents
+	const tabs = document.querySelectorAll('.tab');
+	const tabContents = document.querySelectorAll('.tab-content');
 	
-	// Elements section
-	const elementsSection = createElement('div', { className: 'detail-section' }, null, detailsWrapper);
-	createElement('h3', null, 'Detected Elements', elementsSection);
+	// Remove active class from all tabs and contents
+	tabs.forEach(tab => tab.classList.remove('active'));
+	tabContents.forEach(content => content.classList.remove('active'));
 	
-	if (dialog.selector) {
-		addDetailItem('Element Selector', dialog.selector, elementsSection);
-	}
+	// Activate the details tab
+	const detailsTab = document.querySelector('.tab[data-tab="details"]');
+	const detailsContent = document.getElementById('details-tab');
 	
-	if (dialog.html) {
-		// Create HTML preview with toggle
-		const htmlPreview = createElement('div', { className: 'detail-item' }, null, elementsSection);
-		createElement('strong', null, 'HTML Content: ', htmlPreview);
-		
-		const toggleButton = createElement('button', {
-			className: 'action-button',
-			style: 'margin-left: 10px;'
-		}, 'Show/Hide HTML', htmlPreview);
-		
-		const contentDiv = createElement('div', {
-			className: 'html-content',
-			style: 'display: none; max-height: 300px; overflow: auto; margin-top: 10px; font-family: monospace; font-size: 12px; white-space: pre-wrap; background-color: #f8f8f8; padding: 10px; border-radius: 3px;'
-		}, null, htmlPreview);
-		
-		// Format HTML with line numbers
-		contentDiv.innerHTML = dialog.html;
-		
-		// Toggle visibility on click
-		toggleButton.addEventListener('click', () => {
-			contentDiv.style.display = contentDiv.style.display === 'none' ? 'block' : 'none';
+	if (detailsTab) detailsTab.classList.add('active');
+	if (detailsContent) detailsContent.classList.add('active');
+	
+	// Also show the dialog details container and hide the "no selection" message
+	const dialogDetailContainer = document.getElementById('dialogDetailContainer');
+	const noSelectionMessage = document.getElementById('noSelectionMessage');
+	
+	if (dialogDetailContainer) dialogDetailContainer.style.display = 'block';
+	if (noSelectionMessage) noSelectionMessage.style.display = 'none';
+	
+	// Dispatch an event for popup_fixed.js to handle the classifications
+	if (window.currentDialog) {
+		const dialogDetailsEvent = new CustomEvent('switchedToDetailsTab', { 
+			detail: window.currentDialog 
 		});
-	}
-	
-	// Review section
-	const reviewSection = createElement('div', { className: 'detail-section' }, null, detailsWrapper);
-	createElement('h3', null, 'Review', reviewSection);
-	
-	// Add review status
-	addDetailItem('Status', dialog.reviewed ? 'Reviewed' : 'Not reviewed', reviewSection);
-	
-	// Add mark as reviewed button if not already reviewed
-	if (!dialog.reviewed) {
-		const reviewButton = createElement('button', { className: 'action-button' }, 
-			'Mark as Reviewed', reviewSection);
-		
-		reviewButton.addEventListener('click', () => {
-			markDialogAsReviewed(dialog.id, () => {
-				// Update the UI
-				reviewButton.disabled = true;
-				reviewButton.textContent = 'Marked as Reviewed';
-				
-				// Add reviewed class to the item
-				const item = document.querySelector(`.history-item[data-id="${dialog.id}"]`);
-				if (item) {
-					item.classList.remove('not-reviewed');
-					item.classList.add('reviewed');
-				}
-			});
-		});
+		document.dispatchEvent(dialogDetailsEvent);
 	}
 }
 

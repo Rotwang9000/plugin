@@ -1,3 +1,6 @@
+// Import settings to access clickedElements
+import { clickedElements } from '../modules/settings.js';
+
 /**
  * Check if an element is visible
  * @param {Element} element - The element to check
@@ -55,9 +58,6 @@ function hasHighZIndex(element) {
  * @returns {boolean} Whether the click was successful
  */
 function clickElement(element) {
-	// Import settings to access clickedElements
-	const { clickedElements } = require('../modules/settings.js');
-	
 	// Check if the element has already been clicked
 	if (clickedElements.has(element)) {
 		console.log('Cookie Consent Manager: Button already clicked, ignoring this click attempt');
@@ -364,8 +364,9 @@ function clickElement(element) {
 	return false;
 }
 
-export { 
-	isElementVisible, 
-	hasHighZIndex, 
-	clickElement 
+// Export functions
+export {
+	isElementVisible,
+	hasHighZIndex,
+	clickElement
 }; 

@@ -207,7 +207,7 @@ function findButtonInDialog(dialogElement, buttonType) {
 	return null;
 }
 
-module.exports = {
+export {
 	matchDialogWithCloudPatterns,
 	detectWithCloudPatterns,
 	findButtonInDialog

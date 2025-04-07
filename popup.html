@@ -111,11 +111,16 @@
 			left: 0;
 			top: 100%;
 			margin-top: 5px;
-			z-index: 100;
+			z-index: 999;
 		}
 		
-		.tooltip-icon:hover + .tooltip-text {
+		.tooltip-container:hover .tooltip-text {
 			display: block;
+		}
+		
+		/* Disable hover for modal tooltips */
+		.tooltip-container.modal-tooltip:hover .tooltip-text {
+			display: none;
 		}
 		
 		#status {
@@ -385,7 +390,7 @@
 			bottom: 0;
 			background-color: rgba(0, 0, 0, 0.05);
 			display: flex;
-			align-items: center;
+			align-items:flex-start;
 			justify-content: center;
 			z-index: 10;
 		}
@@ -398,6 +403,33 @@
 			font-weight: bold;
 			font-size: 13px;
 			box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+			margin-top: 10px;
+			display: inline-block;
+			cursor: pointer;
+			transition: background-color 0.2s;
+		}
+		
+		.premium-tag:hover {
+			background-color: #5E35B1;
+		}
+		
+		.premium-tag-description {
+			font-size: 12px;
+			color: #666;
+			margin-top: 5px;
+			margin-bottom: 15px;
+		}
+		
+		.premium-feature-item {
+			padding: 10px;
+			border-radius: 5px;
+			background-color: #f9f9f9;
+			margin-bottom: 8px;
+			transition: background-color 0.2s;
+		}
+		
+		.premium-feature-item:hover {
+			background-color: #f0f0f0;
 		}
 		
 		/* Cookie detection status styles */
@@ -432,12 +464,28 @@
 			color: #2E7D32;
 		}
 		
+		.status-history {
+			border-left: 4px solid #9C27B0;
+		}
+		.status-history .detection-header {
+			background-color: #f3e5f5;
+			color: #6A1B9A;
+		}
+		
 		.status-info {
 			border-left: 4px solid #2196F3;
 		}
 		.status-info .detection-header {
 			background-color: #e3f2fd;
 			color: #1565C0;
+		}
+		
+		.status-none {
+			border-left: 4px solid #9E9E9E;
+		}
+		.status-none .detection-header {
+			background-color: #f5f5f5;
+			color: #616161;
 		}
 		
 		.action-button {
@@ -449,18 +497,330 @@
 			cursor: pointer;
 			margin-top: 5px;
 		}
+		
+		.soon-badge {
+			display: inline-block;
+			background-color: #FF9800;
+			color: white;
+			font-size: 10px;
+			padding: 2px 6px;
+			border-radius: 10px;
+			margin-left: 8px;
+			vertical-align: middle;
+			font-weight: bold;
+			box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+			letter-spacing: 0.5px;
+		}
+		
+		.button-style {
+			display: inline-block;
+			border: none;
+			padding: 5px 10px;
+			border-radius: 3px;
+			cursor: grab;
+			margin-right: 10px;
+			font-size: 12px;
+			color: #333;
+			box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+			transition: all 0.2s;
+			flex-grow: 1;
+			user-select: none;
+			-webkit-user-select: none;
+			background-color: #f5f5f5;
+		}
+		
+		.button-style:hover {
+			background-color: #e8e8e8;
+			box-shadow: 0 2px 3px rgba(0,0,0,0.1);
+		}
+		
+		.preference-item {
+			display: flex;
+			align-items: center;
+			padding: 8px 10px;
+			background-color: white;
+			border-bottom: 1px solid #eee;
+			transition: background-color 0.2s;
+			user-select: none;
+			-webkit-user-select: none;
+		}
+		
+		.preference-item:hover {
+			background-color: #f9f9f9;
+		}
+		
+		.preference-item:last-child {
+			border-bottom: none;
+		}
+		
+		.preference-item.dragging {
+			background-color: #f0f0f0;
+			box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+		}
+		
+		.ghost-placeholder {
+			background-color: #f0f8ff;
+			border: 1px dashed #99c2ff;
+		}
+		
+		.drag-handle {
+			margin-right: 10px;
+			cursor: grab;
+			color: #999;
+			font-size: 16px;
+			user-select: none;
+			-webkit-user-select: none;
+		}
+		
+		/* When dragging is in progress */
+		body.dragging-active {
+			cursor: grabbing;
+		}
+		
+		body.dragging-active .drag-handle,
+		body.dragging-active .button-style {
+			cursor: grabbing;
+		}
+		
+		/* New Modal Tooltip styles */
+		.tooltip-modal-overlay {
+			display: none;
+			position: fixed;
+			top: 0;
+			left: 0;
+			right: 0;
+			bottom: 0;
+			background-color: rgba(0, 0, 0, 0.5);
+			z-index: 1000;
+			justify-content: center;
+			align-items: center;
+		}
+		
+		.tooltip-modal {
+			background-color: white;
+			max-width: 80%;
+			width: 300px;
+			border-radius: 5px;
+			padding: 15px;
+			box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+			position: relative;
+		}
+		
+		.tooltip-modal-title {
+			font-weight: bold;
+			margin-bottom: 10px;
+			font-size: 14px;
+			color: #673AB7;
+		}
+		
+		.tooltip-modal-content {
+			font-size: 13px;
+			line-height: 1.4;
+			margin-bottom: 10px;
+		}
+		
+		.tooltip-modal-close {
+			text-align: right;
+		}
+		
+		.tooltip-modal-close-btn {
+			background-color: #673AB7;
+			color: white;
+			border: none;
+			padding: 5px 10px;
+			border-radius: 3px;
+			cursor: pointer;
+			font-size: 12px;
+		}
+		
+		.history-item {
+			background-color: white;
+			margin-bottom: 6px;
+			padding: 8px 10px;
+			border-radius: 5px;
+			box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+			cursor: pointer;
+			display: flex;
+			flex-direction: column;
+			border-left: 3px solid #FFC107;
+		}
+		
+		.history-item:hover {
+			background-color: #f5f5f5;
+		}
+		
+		.history-item.active {
+			border-left: 3px solid #673AB7;
+			background-color: #f0e8ff;
+		}
+		
+		.history-item-domain {
+			font-weight: bold;
+			margin-bottom: 0;
+			font-size: 14px;
+		}
+		
+		.history-item-method, .history-item-date {
+			font-size: 11px;
+			color: #666;
+		}
+		
+		.history-item-meta {
+			display: flex;
+			justify-content: space-between;
+			margin-top: 2px;
+		}
+		
+		.load-more-container {
+			text-align: center;
+			margin-top: 15px;
+			margin-bottom: 15px;
+		}
+		
+		#loadMoreDialogs {
+			padding: 8px 15px;
+			background-color: #673AB7;
+			color: white;
+			border: none;
+			border-radius: 3px;
+			cursor: pointer;
+			font-size: 13px;
+		}
+		
+		#loadMoreDialogs:hover {
+			background-color: #5e35b1;
+		}
+		
+		.site-indicator {
+			width: 12px;
+			height: 12px;
+			border-radius: 50%;
+			display: inline-block;
+		}
+		
+		.current-page {
+			background-color: #4CAF50;
+			margin-right: 4px;
+		}
+		
+		.auto-accepted {
+			background-color: #2196F3;
+		}
+		
+		#recommendationsList {
+			font-size: 13px;
+		}
+		
+		/* Element classifications styling */
+		.element-classification-container {
+			background-color: white;
+			border-radius: 5px;
+			box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+			margin-bottom: 15px;
+			overflow: hidden;
+		}
+		
+		.element-row {
+			display: flex;
+			align-items: center;
+			margin-bottom: 8px;
+			padding-bottom: 8px;
+			border-bottom: 1px solid #eee;
+		}
+		
+		.element-row:last-child {
+			margin-bottom: 0;
+			padding-bottom: 0;
+			border-bottom: none;
+		}
+		
+		.element-text {
+			flex: 1;
+			font-size: 13px;
+			margin-right: 10px;
+			word-break: break-word;
+		}
+		
+		.element-type-select {
+			min-width: 120px;
+			padding: 5px;
+			border-radius: 3px;
+			border: 1px solid #ddd;
+			font-size: 12px;
+		}
+		
+		/* Elements summary styling */
+		.elements-summary {
+			background-color: #f5f5f5;
+			padding: 10px;
+			border-radius: 5px;
+			margin-bottom: 10px;
+			font-size: 13px;
+		}
+		
+		.elements-summary p {
+			margin: 5px 0;
+		}
+		
+		/* Element classification containers */
+		.element-classification-container {
+			margin-bottom: 15px;
+		}
+		
+		.section-header {
+			background-color: #f5f5f5;
+			padding: 10px;
+			border-radius: 5px 5px 0 0;
+			font-weight: bold;
+			border-bottom: 1px solid #ddd;
+		}
+		
+		.section-content {
+			background-color: white;
+			padding: 10px;
+			border-radius: 0 0 5px 5px;
+			border: 1px solid #ddd;
+			border-top: none;
+		}
+		
+		.no-elements-message {
+			color: #666;
+			font-style: italic;
+			padding: 10px 0;
+			text-align: center;
+		}
+		
+		/* Change button styles based on review state */
+		#badMatchBtn.submit-changes {
+			background-color: #FF9800;
+		}
+		
+		.review-section {
+			background-color: white;
+			border-radius: 5px;
+			box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+			padding: 15px;
+			margin-bottom: 15px;
+		}
+		
+		.review-heading {
+			font-size: 14px;
+			font-weight: bold;
+			margin-bottom: 15px;
+		}
 	</style>
 </head>
 <body>
 	<div class="tabs">
 		<div class="tab active" data-tab="settings">Settings</div>
-		<div class="tab" data-tab="history">History <span id="dialogCount"></span></div>
+		<div class="tab" data-tab="review">Review & History <span id="dialogCount"></span></div>
+		<div class="tab" data-tab="details">Details</div>
 		<div class="tab" data-tab="analyze">Analyze</div>
 		<div class="tab" data-tab="account">Account</div>
 	</div>
 	
 	<div class="container">
-		<div id="settings" class="tab-content active">
+		<div id="settings-tab" class="tab-content active">
 			<h1>Cookie Consent Manager</h1>
 			
 			<!-- Current page status area -->
@@ -500,6 +860,28 @@
 						</label>
 					</div>
 					
+					<!-- Prefer Essential Cookies (premium feature, visible only for premium) -->
+					<div id="preferEssentialContainer" class="toggle-container tooltip-container" style="display: none; margin-top: 5px;">
+						<div class="toggle-label">Prefer Essential Cookies <span class="tooltip-icon">?</span><span class="pro-badge">PRO</span>
+							<span class="tooltip-text">When enabled, the extension will try to select 'necessary cookies only' options when available, rather than accepting all cookies.</span>
+						</div>
+						<label class="toggle">
+							<input type="checkbox" id="preferEssentialPremium">
+							<span class="slider"></span>
+						</label>
+					</div>
+					
+					<!-- Premium button preferences (shown only in premium mode) -->
+					<div id="buttonPreferencesContainer" style="display: none; margin-top: 10px; margin-bottom: 15px; padding-left: 20px;">
+						<div>
+							<span>Button preference order <span class="pro-badge">PRO</span></span>
+						</div>
+						<div id="buttonPreferenceList" class="preference-list" style="margin-top: 8px;">
+							<!-- Dynamic button preferences will be inserted here -->
+						</div>
+						<p class="feature-note">Drag to reorder your button click preferences</p>
+					</div>
+					
 					<div class="toggle-container tooltip-container" style="margin-bottom: 0;">
 						<div class="toggle-label">Local Detection <span class="tooltip-icon">?</span>
 							<span class="tooltip-text">Uses advanced pattern recognition to detect and handle cookie consent dialogs across any website. Nothing sent to any server.</span>
@@ -509,17 +891,10 @@
 							<span class="slider"></span>
 						</label>
 					</div>
-				</div>
-			</div>
-			
-			<!-- Premium features section with overlay -->
-			<div class="settings-section" style="position: relative;">
-				<div class="settings-header">
-					Premium Features <span class="pro-badge">PRO</span>
-				</div>
-				<div class="settings-content">
-					<div class="toggle-container tooltip-container">
-						<div class="toggle-label">Cloud Mode <span class="tooltip-icon">?</span>
+					
+					<!-- Cloud Mode (premium feature, coming soon) -->
+					<div class="toggle-container tooltip-container premium-only" style="margin-top: 10px; display: none;">
+						<div class="toggle-label">Cloud Mode <span class="tooltip-icon">?</span><span class="pro-badge">PRO</span><span class="soon-badge">SOON</span>
 							<span class="tooltip-text">Uses a database of known cookie selectors to quickly identify common consent dialogs. Requires data collection consent.</span>
 						</div>
 						<label class="toggle">
@@ -527,31 +902,67 @@
 							<span class="slider"></span>
 						</label>
 					</div>
+					<p class="feature-note premium-only" id="cloudModeNote" style="padding-left: 20px; display: none;">Cloud Mode will be available in a future update to improve detection accuracy.</p>
 					
-					<div class="toggle-container tooltip-container">
-						<div class="toggle-label">Privacy Mode <span class="tooltip-icon">?</span>
-							<span class="tooltip-text">Redacts personal information when submitting cookie dialog ratings to improve the cloud database. Requires data collection consent.</span>
+					<!-- Toolbar (premium feature, coming soon) -->
+					<div class="toggle-container tooltip-container premium-only" style="margin-top: 10px; display: none;">
+						<div class="toggle-label">Toolbar <span class="tooltip-icon">?</span><span class="pro-badge">PRO</span><span class="soon-badge">SOON</span>
+							<span class="tooltip-text">Adds a convenient toolbar to pages with cookie dialogs, giving you quick access to your preferences and consent options.</span>
 						</div>
 						<label class="toggle">
-							<input type="checkbox" id="privacyMode" disabled>
+							<input type="checkbox" id="toolbar" disabled>
 							<span class="slider"></span>
 						</label>
 					</div>
-					
-					<div class="toggle-container tooltip-container" style="margin-bottom: 0;">
-						<div class="toggle-label">Prefer Essential Only <span class="tooltip-icon">?</span>
-							<span class="tooltip-text">When enabled, the extension will prioritize selecting 'necessary cookies only' options on cookie consent banners when available, rather than accepting all cookies.</span>
-						</div>
-						<label class="toggle">
-							<input type="checkbox" id="gdprCompliance" disabled>
-							<span class="slider"></span>
-						</label>
-					</div>
+					<p class="feature-note premium-only" id="toolbarNote" style="padding-left: 20px; display: none;">Toolbar will be available in a future update to enhance your cookie management experience.</p>
 				</div>
-				<!-- Premium overlay -->
-				<div class="premium-overlay">
-					<div class="premium-tag">
-						Premium Version Coming Soon
+			</div>
+			
+			<!-- Premium features section with overlay (only shown for non-premium users) -->
+			<div id="premiumPromoSection" class="settings-section" style="position: relative;">
+				<div class="settings-header">
+					Premium Features
+				</div>
+				<div class="settings-content">
+					<div class="premium-tag" id="upgradeButton">
+						Upgrade to Premium
+					</div>
+					<div class="premium-tag-description">
+						Lock in your subscription price now at only £1/month.
+					</div>
+					<!-- Non-premium view: Simple toggle -->
+					<div id="nonPremiumView">
+						<div class="toggle-container tooltip-container premium-feature-item">
+							<div class="toggle-label">Prefer Essential Cookies <span class="tooltip-icon">?</span>
+								<span class="tooltip-text">When enabled, the extension will try to select 'necessary cookies only' options when available, rather than accepting all cookies.</span>
+							</div>
+							<label class="toggle">
+								<input type="checkbox" id="preferEssential" class="premium-toggle">
+								<span class="slider"></span>
+							</label>
+						</div>
+						
+						<div class="toggle-container tooltip-container premium-feature-item">
+							<div class="toggle-label">Cloud Mode <span class="tooltip-icon">?</span><span class="soon-badge">SOON</span>
+								<span class="tooltip-text">Uses a database of known cookie selectors to quickly identify common consent dialogs. Requires data collection consent.</span>
+							</div>
+							<label class="toggle">
+								<input type="checkbox" id="cloudModePromo" class="premium-toggle">
+								<span class="slider"></span>
+							</label>
+						</div>
+						
+						<div class="toggle-container tooltip-container premium-feature-item">
+							<div class="toggle-label">Toolbar <span class="tooltip-icon">?</span><span class="soon-badge">SOON</span>
+								<span class="tooltip-text">Adds a convenient toolbar to pages with cookie dialogs, giving you quick access to your preferences and consent options.</span>
+							</div>
+							<label class="toggle">
+								<input type="checkbox" id="toolbarPromo" class="premium-toggle">
+								<span class="slider"></span>
+							</label>
+						</div>
+						
+						<p class="feature-note">Upgrade to premium to access advanced cookie preferences and upcoming features.</p>
 					</div>
 				</div>
 			</div>
@@ -562,15 +973,17 @@
 			<div id="cookieDetectionStatus"></div>
 		</div>
 		
-		<div id="history" class="tab-content">
-			<h1>Dialog History</h1>
+		<div id="review-tab" class="tab-content">
+			<h1>Cookie Dialogs Review & History</h1>
+			
 			<div class="history-controls">
 				<select id="historyFilter" class="filter-select">
-					<option value="all">All Dialogs</option>
-					<option value="reviewed">Reviewed</option>
-					<option value="not-reviewed">Not Reviewed</option>
+					<option value="all">All</option>
+					<option value="auto_accepted">Auto-Accepted</option>
+					<option value="ignored">Ignored</option>
+					<option value="current_page">Current Page</option>
 				</select>
-				<button id="clearHistory" class="clear-button">Clear History</button>
+				<button id="clearHistoryBtn" class="clear-button">Clear History</button>
 			</div>
 			<div id="historyList"></div>
 			<div id="historyDialogPreview" style="display: none;">
@@ -579,7 +992,53 @@
 			</div>
 		</div>
 		
-		<div id="analyze" class="tab-content">
+		<div id="details-tab" class="tab-content">
+			<h1>Dialog Details</h1>
+			<div id="noSelectionMessage" class="no-details">Select a dialog from the History tab to view details</div>
+			<div id="dialogDetailContainer" style="display: none;">
+				<div id="detailedInfo"></div>
+				<div id="detectedElementsContainer" class="detected-elements-container">
+					<div class="section-header">Detected Elements</div>
+					<div class="section-content">
+						<div id="detectedElementsList">
+							<!-- Dynamically filled with detected elements -->
+						</div>
+					</div>
+				</div>
+				
+				<!-- Button classifications section -->
+				<div id="buttonClassificationsContainer" class="element-classification-container">
+					<div class="section-header">Button Classifications</div>
+					<div class="section-content">
+						<div id="buttonClassificationsList">
+							<!-- Will be populated with buttons and their type dropdowns -->
+						</div>
+					</div>
+				</div>
+				
+				<!-- Option classifications section -->
+				<div id="optionClassificationsContainer" class="element-classification-container">
+					<div class="section-header">Option Classifications</div>
+					<div class="section-content">
+						<div id="optionClassificationsList">
+							<!-- Will be populated with options and their type dropdowns -->
+						</div>
+					</div>
+				</div>
+				
+				<!-- Review section -->
+				<div id="reviewContainer" class="review-section">
+					<div class="review-heading">Review Classification</div>
+					<div class="rating-buttons">
+						<button id="goodMatchBtn">Good Match</button>
+						<button id="badMatchBtn">Bad Match</button>
+					</div>
+					<div id="submissionStatus"></div>
+				</div>
+			</div>
+		</div>
+		
+		<div id="analyze-tab" class="tab-content">
 			<h1>Cookie Dialog Analysis</h1>
 			<p>Paste the HTML source of a cookie consent box to test the smart formula against it.</p>
 			
@@ -615,13 +1074,13 @@
 			</div>
 		</div>
 		
-		<div id="account" class="tab-content">
+		<div id="account-tab" class="tab-content">
 			<h1>Account & Preferences</h1>
 			
 			<div class="subscription-status">
 				<div id="subscriptionStatus">
 					<div class="status-label">Current Plan: <span id="planBadge" class="free-badge">Free</span></div>
-					<div class="subscription-description">Access premium features to enhance your cookie consent management experience.</div>
+					<div class="subscription-description">Access premium features for just £1/month. Lock in this price now - when additional features are released, the price will increase for new subscribers, but your rate will remain unchanged.</div>
 					
 					<div class="premium-features">
 						<div class="premium-feature"><span class="feature-check">✓</span> GDPR Compliant Cookie Management</div>
@@ -661,9 +1120,33 @@
 					<span class="slider"></span>
 				</label>
 			</div>
+			
+			<!-- Hidden developer testing section - revealed with special key combination -->
+			<div id="devTestingSection" style="display: none; margin-top: 15px; padding: 10px; border: 1px dashed #FF9800; border-radius: 5px;">
+				<h4 style="margin-top: 0; color: #FF9800;">Developer Testing</h4>
+				<div class="toggle-container">
+					<div class="toggle-label">Test Premium Features</div>
+					<label class="toggle">
+						<input type="checkbox" id="testPremiumMode">
+						<span class="slider"></span>
+					</label>
+				</div>
+				<p style="font-size: 11px; margin-top: 5px; color: #666;">For development testing only. Bypasses payment checks.</p>
+			</div>
 		</div>
 	</div>
 	
-	<script src="popup.js" type="module"></script>
+	<script type="module" src="dist/popup.bundle.js"></script>
+	
+	<!-- Tooltip Modal -->
+	<div class="tooltip-modal-overlay" id="tooltipModalOverlay">
+		<div class="tooltip-modal">
+			<div class="tooltip-modal-title" id="tooltipModalTitle"></div>
+			<div class="tooltip-modal-content" id="tooltipModalContent"></div>
+			<div class="tooltip-modal-close">
+				<button class="tooltip-modal-close-btn" id="tooltipModalCloseBtn">Close</button>
+			</div>
+		</div>
+	</div>
 </body>
 </html> 

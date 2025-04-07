@@ -20,6 +20,12 @@ document.addEventListener('DOMContentLoaded', () => {
 			color: #666;
 		}
 		
+		/* Disabled section styling */
+		.disabled-section {
+			opacity: 0.6;
+			pointer-events: none;
+		}
+		
 		/* Cookie detection status styles */
 		.cookie-detection-status {
 			background-color: white;

@@ -30,6 +30,11 @@ export function updateUIFromSettings(settings) {
 	queryAndProcess('input[type="checkbox"][data-setting]', checkbox => {
 		const settingName = checkbox.dataset.setting;
 		checkbox.checked = settings[settingName] === true;
+		
+		// If not the enabled checkbox itself, disable it when extension is disabled
+		if (settingName !== 'enabled') {
+			checkbox.disabled = !settings.enabled;
+		}
 	});
 	
 	// Direct update of checkboxes by ID for backward compatibility
@@ -38,6 +43,23 @@ export function updateUIFromSettings(settings) {
 		const element = document.getElementById(id);
 		if (element) {
 			element.checked = settings[id] === true;
+			
+			// Disable all checkboxes except 'enabled' when extension is disabled
+			if (id !== 'enabled') {
+				element.disabled = !settings.enabled;
+			}
+		}
+	});
+	
+	// Apply disabled styling to settings sections when extension is disabled
+	queryAndProcess('.settings-section', section => {
+		// Don't style the section containing the enabled checkbox
+		if (!section.querySelector('#enabled')) {
+			if (!settings.enabled) {
+				section.classList.add('disabled-section');
+			} else {
+				section.classList.remove('disabled-section');
+			}
 		}
 	});
 	
