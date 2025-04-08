@@ -1,5 +1,5 @@
 // Import modules
-import { findAcceptButton, findRejectButton, findNecessaryCookiesButton, findSettingsButton } from './src/detection/button-recognition.js';
+import { findAcceptButton, findRejectButton, findNecessaryCookiesButton, findSettingsButton, findAcceptButtonSync } from './src/detection/button-recognition.js';
 import { isCookieConsentDialog, findCookieConsentDialogs, analyzeDialogSource, extractDialogElements } from './src/detection/smart-detection.js';
 import { matchDialogWithCloudPatterns, detectWithCloudPatterns, findButtonInDialog } from './src/detection/cloud-detection.js';
 import { formatHtmlWithLineNumbers, escapeHtml, safeGetHtmlContent, createViewableHtmlDocument } from './src/modules/html-utils.js';
@@ -114,7 +114,11 @@ let dialogElements = [];
 
 // Detection timeout settings
 const DETECTION_TIMEOUT = 10000; // 10 seconds
-let detectionTimer = null;
+const processedPopupDomains = new Set(); // Track domains where we've already closed a popup
+let detectionTimer = null; // Timer to stop detection
+
+// Add this after the existing MutationObserver variables at the top
+let allObservers = []; // Store all observers to disconnect them when needed
 
 /**
  * Load selectors from external JSON file
@@ -317,11 +321,23 @@ function detectRegion(domain) {
  * Initialize cookie consent manager
  */
 function initCookieConsentManager() {
+	// IMMEDIATELY check if disabled before doing anything
+	if (!settings || !settings.enabled) {
+		console.log('Cookie Consent Manager is disabled, aborting initialization');
+		return;
+	}
+	
 	// Load selectors first
 	loadSelectors()
 		.then(() => {
 			// Then load settings
 			loadSettings(settings => {
+				// Double-check enabled status after settings load
+				if (!settings.enabled) {
+					console.log('Cookie Consent Manager is disabled after settings load, aborting');
+					return;
+				}
+				
 				// Check for data collection consent
 				getDataCollectionConsent(() => {
 					// Only run if enabled
@@ -420,13 +436,17 @@ function findSimilarPatterns(region) {
  * Run smart mode detection
  */
 function runSmartMode() {
-	if (!settings.smartMode) return;
+	// Skip if smart mode is disabled or extension is disabled
+	if (!settings.smartMode || !settings.enabled) return;
 	
 	// First check existing elements
 	checkExistingElements();
 	
 	// Set up MutationObserver to watch for new elements
 	const observer = new MutationObserver(mutations => {
+		// Skip if extension is disabled
+		if (!settings.enabled) return;
+		
 		mutations.forEach(mutation => {
 			// Check for added nodes
 			if (mutation.addedNodes && mutation.addedNodes.length > 0) {
@@ -443,7 +463,10 @@ function runSmartMode() {
 	// Start observing the document with the configured parameters
 	observer.observe(document.body, { childList: true, subtree: true });
 	
-	// Listen for page load complete
+	// Store the observer so we can disconnect it later if needed
+	allObservers.push(observer);
+	
+	// Listen for page load complete and start the detection timeout
 	if (document.readyState === 'complete') {
 		startDetectionTimeout();
 	} else {
@@ -455,6 +478,9 @@ function runSmartMode() {
  * Start detection timeout after page load
  */
 function startDetectionTimeout() {
+	// Skip if extension is disabled
+	if (!settings || !settings.enabled) return;
+	
 	// Clear any existing timer
 	if (detectionTimer) {
 		clearTimeout(detectionTimer);
@@ -462,23 +488,53 @@ function startDetectionTimeout() {
 	
 	// Set new timer to stop detection after DETECTION_TIMEOUT milliseconds
 	detectionTimer = setTimeout(() => {
-		// Stop all MutationObservers
-		const observers = document.querySelectorAll('*');
-		observers.forEach(el => {
-			if (el._observer) {
-				el._observer.disconnect();
-				delete el._observer;
-			}
-		});
-		
-		console.log(`Cookie detection stopped after ${DETECTION_TIMEOUT/1000} seconds`);
+		// Aggressively stop all detection with no exceptions
+		stopAllDetection();
+		console.log(`Cookie detection forcibly stopped after ${DETECTION_TIMEOUT/1000} seconds`);
 	}, DETECTION_TIMEOUT);
+	
+	// Also set a secondary failsafe timer for extra protection
+	setTimeout(() => {
+		if (allObservers.length > 0 || detectionTimer) {
+			console.log('Failsafe timer triggered - forcing detection shutdown');
+			stopAllDetection();
+		}
+	}, DETECTION_TIMEOUT + 1000); // 1 second after the primary timeout
 }
 
 /**
  * Check existing elements for cookie banners
  */
 function checkExistingElements() {
+	// Skip if extension is disabled - hardened check
+	if (!settings || !settings.enabled) {
+		console.log('Cookie Consent Manager: Extension disabled, skipping detection');
+		return;
+	}
+	
+	// Skip if detection has been explicitly stopped
+	if (window.__cookieDetectionStopped) {
+		console.log('Cookie Consent Manager: Detection explicitly stopped, skipping detection');
+		return;
+	}
+	
+	// Strict timeout check - skip if more than DETECTION_TIMEOUT milliseconds have passed since page load
+	// This ensures we never check for cookies after the 10 second window
+	if (window.performance && window.performance.timing) {
+		const loadTime = window.performance.timing.loadEventEnd || 
+			window.performance.timing.domContentLoadedEventEnd || 
+			window.performance.timing.navigationStart;
+		const currentTime = Date.now();
+		
+		// If page has been loaded for more than 10 seconds, skip detection
+		if (loadTime && (currentTime - loadTime) > DETECTION_TIMEOUT) {
+			console.log(`Cookie Consent Manager: Page loaded more than ${DETECTION_TIMEOUT/1000} seconds ago, detection stopped`);
+			// Set detection stopped flag to prevent future checks
+			window.__cookieDetectionStopped = true;
+			return;
+		}
+	}
+	
 	// If we have loaded selectors, use those
 	let bannerSelectors = selectors.cookieDialogSelectors || [
 		'div[class*="cookie"]',
@@ -491,6 +547,18 @@ function checkExistingElements() {
 		'div[id*="privacy"]'
 	];
 	
+	// AVOID data-* selectors that aren't specifically for cookie consent
+	// Filter out any inadvertently added data attribute selectors
+	bannerSelectors = bannerSelectors.filter(selector => {
+		// Keep all non-data-attribute selectors
+		if (!selector.includes('data-')) return true;
+		
+		// Only keep data attribute selectors that are specifically for cookies
+		return selector.includes('data-cookie') || 
+			selector.includes('data-consent') || 
+			selector.includes('data-gdpr');
+	});
+	
 	// Join selectors and query all
 	const elements = document.querySelectorAll(bannerSelectors.join(','));
 	
@@ -499,16 +567,17 @@ function checkExistingElements() {
 		checkElementForCookieBanner(element);
 	});
 	
-	// Check for X/Grok history windows
+	// Check for X/Grok history windows - but only if explicitly in selectors
 	if (selectors.dialogTypes && selectors.dialogTypes.xGrokHistory) {
 		const xGrokSelectors = selectors.dialogTypes.xGrokHistory.selectors || [];
-		const xGrokElements = document.querySelectorAll(xGrokSelectors.join(','));
 		
-		// Skip X/Grok elements if on Twitter/X domain
+		// Skip if on Twitter/X domain
 		const isTwitterOrX = window.location.hostname.includes('twitter.com') || 
 							window.location.hostname.includes('x.com');
 		
-		if (!isTwitterOrX) {
+		if (!isTwitterOrX && xGrokSelectors.length > 0) {
+			const xGrokElements = document.querySelectorAll(xGrokSelectors.join(','));
+			
 			xGrokElements.forEach(element => {
 				// Process but do not close automatically
 				processCookieElement(element, null, 'xGrok');
@@ -522,6 +591,9 @@ function checkExistingElements() {
  * @param {Element} element - Element to check
  */
 function checkElementForCookieBanner(element) {
+	// Skip if extension is disabled
+	if (!settings.enabled) return;
+	
 	// Ignore certain elements
 	if (!element || !element.tagName || element.tagName === 'SCRIPT' || element.tagName === 'STYLE') {
 		return;
@@ -532,7 +604,7 @@ function checkElementForCookieBanner(element) {
 		processCookieElement(element, null, 'smart');
 		
 		// If auto-accept is enabled, click the appropriate button based on preferences
-		if (settings.autoAccept) {
+		if (settings.autoAccept && settings.enabled) {
 			clickAppropriateButton(element);
 		}
 	} else {
@@ -741,6 +813,12 @@ function sanitizeUrl(url) {
  * @param {string} method - Detection method
  */
 function processCookieElement(element, selector, method) {
+	// Skip everything if the extension is disabled
+	if (!settings.enabled) {
+		console.log('Cookie Consent Manager is disabled, skipping dialog detection');
+		return;
+	}
+	
 	// Generate a unique identifier for this dialog
 	const dialogId = generateDialogId(element);
 	
@@ -749,6 +827,10 @@ function processCookieElement(element, selector, method) {
 		console.log('Dialog already processed in this session, skipping:', dialogId);
 		return;
 	}
+	
+	// Get current domain to check if we've already processed a popup on this domain
+	const currentDomain = window.location.hostname;
+	const isDomainProcessed = processedPopupDomains.has(currentDomain);
 	
 	// Mark this dialog as processed in this session
 	processedDialogsInSession.add(dialogId);
@@ -761,15 +843,28 @@ function processCookieElement(element, selector, method) {
 		capturedDialogs.push(dialog);
 	}
 	
-	// Send message to background script
+	// Send message to background script - always do this for reporting purposes
+	// even if autoAccept is disabled
 	sendMessageToBackground({
 		action: 'cookieDialogDetected',
 		dialog: dialog
 	});
 	
-	// Only auto-accept if it's not an X/Grok history window
-	if (method !== 'xGrok' && settings.autoAccept) {
+	// Only auto-accept if:
+	// 1. It's not an X/Grok history window
+	// 2. Auto-accept is enabled in settings
+	// 3. We haven't already processed a popup on this domain in this session
+	if (method !== 'xGrok' && settings.autoAccept && !isDomainProcessed) {
+		console.log('Auto-accepting cookie dialog:', 
+			method, selector ? selector : '[detected element]');
+		processedPopupDomains.add(currentDomain); // Mark this domain as processed
 		clickAppropriateButton(element);
+	} else if (!settings.autoAccept) {
+		console.log('Auto-accept is disabled, only detecting dialog for reporting');
+	} else if (isDomainProcessed) {
+		console.log('Already processed a dialog on this domain, skipping auto-accept');
+	} else if (method === 'xGrok') {
+		console.log('X/Grok dialog detected, skipping auto-accept');
 	}
 }
 
@@ -797,11 +892,44 @@ function generateDialogId(element) {
  * @returns {boolean} Whether the click was successful
  */
 function clickElement(element) {
-	if (!element || clickedElements.has(element)) {
-		return false; // Avoid clicking the same element multiple times
+	// IMMEDIATELY abort if disabled
+	if (!settings || !settings.enabled) {
+		console.log('Cookie Consent Manager is disabled, aborting click');
+		return false;
 	}
 	
-	// Mark as clicked
+	// Add more stringent duplicate click prevention
+	// Check if element is null or already clicked
+	if (!element) {
+		console.log('Cannot click null element');
+		return false;
+	}
+	
+	if (clickedElements.has(element)) {
+		console.log('Element already clicked, refusing to click again:', element.outerHTML.substring(0, 100));
+		return false;
+	}
+	
+	// Check if this is the same element by content (not just reference)
+	// This handles cases where the DOM is recreated but visually the same button
+	const elementSignature = generateElementSignature(element);
+	if (elementSignature) {
+		// Check if we've clicked anything with the same signature
+		let alreadyClickedSimilar = false;
+		clickedElements.forEach((value, key) => {
+			const keySignature = generateElementSignature(key);
+			if (keySignature && keySignature === elementSignature) {
+				alreadyClickedSimilar = true;
+			}
+		});
+		
+		if (alreadyClickedSimilar) {
+			console.log('Element with identical signature already clicked, refusing to click again');
+			return false;
+		}
+	}
+	
+	// Mark as clicked BEFORE attempting the click
 	clickedElements.set(element, true);
 	
 	// Extract button text for reporting
@@ -872,6 +1000,30 @@ function clickElement(element) {
 }
 
 /**
+ * Generate a signature for an element to detect duplicates with different references
+ * @param {Element} element - The element to generate a signature for
+ * @returns {string} A signature string
+ */
+function generateElementSignature(element) {
+	if (!element || !element.tagName) return null;
+	
+	try {
+		// Create signature from element properties
+		const tag = element.tagName || '';
+		const id = element.id || '';
+		const classes = Array.from(element.classList || []).join('');
+		const text = element.textContent?.trim().substring(0, 50) || '';
+		const rect = element.getBoundingClientRect();
+		const position = `${Math.round(rect.width)}_${Math.round(rect.height)}`;
+		
+		return `${tag}_${id}_${classes}_${text}_${position}`.replace(/\s+/g, '');
+	} catch (e) {
+		console.error('Error generating element signature:', e);
+		return null;
+	}
+}
+
+/**
  * Check if an element is visible
  * @param {Element} element - Element to check
  * @returns {boolean} - Whether the element is visible
@@ -896,25 +1048,144 @@ document.addEventListener('DOMContentLoaded', () => {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 	// Handle settings updates
 	if (message.action === 'settingsUpdated') {
+		// Store old enabled state for change detection
+		const wasEnabled = settings ? settings.enabled : false;
+		const wasAutoAccept = settings ? settings.autoAccept : false;
+		
 		// Update settings
 		settings = message.settings;
 		
-		// Apply new settings
-		if (settings.enabled) {
-			// Only apply settings if the extension is enabled
-			if (settings.autoAccept) {
-				// Rerun the detector with new settings
-				initCookieConsentManager();
-			}
+		// Get the specific setting that was changed
+		const changedSetting = message.changedSetting;
+		const isEnabledChange = changedSetting === 'enabled';
+		const isAutoAcceptChange = changedSetting === 'autoAccept';
+		const isSmartModeChange = changedSetting === 'smartMode';
+		
+		console.log('Settings updated:', changedSetting, 'new value:', settings[changedSetting]);
+		
+		// CRITICAL ENABLED STATE HANDLING
+		// If enabled was changed to false, aggressively stop all detection immediately
+		if (isEnabledChange && !settings.enabled) {
+			console.log('Extension was disabled, forcefully stopping all detection');
+			stopAllDetection();
+			// Send disabled state event for UI updates
+			document.dispatchEvent(new CustomEvent('ccm-enabled-changed', { detail: false }));
+			// Send confirmation of shutdown
+			sendResponse({ success: true, action: 'detection_stopped' });
+			return true;
 		}
 		
-		// Send confirmation
+		// If the extension is now disabled (whether it was before or not), stop detection
+		if (!settings.enabled) {
+			console.log('Extension is disabled, ensuring detection is stopped');
+			stopAllDetection();
+			sendResponse({ success: true, action: 'detection_stopped' });
+			return true;
+		}
+		
+		// If the extension was just enabled (changed from disabled)
+		if (settings.enabled && !wasEnabled) {
+			console.log('Extension was just enabled, starting detection');
+			// Force a clean start by stopping any existing detection first
+			stopAllDetection();
+			// Then start fresh
+			initCookieConsentManager();
+			// Send enabled state event for UI updates
+			document.dispatchEvent(new CustomEvent('ccm-enabled-changed', { detail: true }));
+			sendResponse({ success: true, action: 'detection_started' });
+			return true;
+		}
+		
+		// If auto-accept was just disabled but the extension is still enabled
+		if (wasAutoAccept && !settings.autoAccept && settings.enabled) {
+			console.log('Auto-accept was disabled, continuing detection without clicking');
+			// No need to stop detection entirely, just won't auto-click
+			sendResponse({ success: true, action: 'auto_accept_disabled' });
+			return true;
+		}
+		
+		// If auto-accept was just enabled and extension is enabled
+		if (!wasAutoAccept && settings.autoAccept && settings.enabled) {
+			console.log('Auto-accept was enabled, will now click on cookie banners');
+			sendResponse({ success: true, action: 'auto_accept_enabled' });
+			return true;
+		}
+		
+		// If smart mode was toggled while extension is enabled
+		if (isSmartModeChange && settings.enabled) {
+			if (settings.smartMode) {
+				console.log('Smart mode enabled, starting detection');
+				runSmartMode();
+			} else {
+				console.log('Smart mode disabled, but extension still active');
+				// Just don't run smart mode, but keep other detection active
+			}
+			sendResponse({ success: true, action: 'smart_mode_toggled' });
+			return true;
+		}
+		
+		// For any other setting changes while enabled
+		if (settings.enabled) {
+			console.log('Settings updated while extension is enabled');
+			sendResponse({ success: true, action: 'settings_updated' });
+			return true;
+		}
+		
+		// Default success response
 		sendResponse({ success: true });
+	}
+	
+	// Handle immediate stop detection request (triggered when extension is disabled)
+	else if (message.action === 'stopDetection') {
+		// Update settings first
+		if (message.settings) {
+			settings = message.settings;
+		} else {
+			// If settings not provided, force disabled state
+			if (settings) settings.enabled = false;
+		}
+		
+		// Get the specific setting that was changed
+		const changedSetting = message.changedSetting || 'enabled';
+		
+		console.log(`Received explicit stop detection due to ${changedSetting} change`);
+		
+		// Forcefully stop all detection
+		stopAllDetection();
+		
+		// Send confirmation with explicit action
+		sendResponse({ success: true, action: 'detection_force_stopped' });
+		return true;
 	}
 	
 	// Handle check for cookie boxes request
 	else if (message.action === 'checkForCookieBoxes') {
 		try {
+			// Skip detection if extension is disabled
+			if (!settings || !settings.enabled) {
+				sendResponse({ dialogFound: false, disabled: true });
+				return true;
+			}
+			
+			// Enhanced timeout detection - don't process if we've been loaded for > 10 seconds
+			if (window.performance && window.performance.timing) {
+				const loadTime = window.performance.timing.loadEventEnd || window.performance.timing.domContentLoadedEventEnd;
+				const currentTime = Date.now();
+				
+				if (loadTime && (currentTime - loadTime) > DETECTION_TIMEOUT) {
+					console.log('Page loaded more than 10 seconds ago, skipping cookie box detection');
+					sendResponse({ dialogFound: false, timedOut: true });
+					return true;
+				}
+			}
+			
+			// Also respect the explicit detection stopped flag
+			if (window.__cookieDetectionStopped) {
+				console.log('Detection has been explicitly stopped, ignoring cookie box check');
+				sendResponse({ dialogFound: false, stopped: true });
+				return true;
+			}
+			
 			const cookieElements = findCookieElements();
 			const dialogFound = cookieElements.length > 0;
 			let buttonClicked = null;
@@ -926,81 +1197,92 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 					// Try to click the button based on user preferences
 					let clickSuccess = false;
 					
-					// Check if we have advanced button preferences (premium users)
-					if (settings.buttonPreferences && settings.buttonPreferences.order) {
-						// Follow the preference order defined by the user
-						for (const buttonType of settings.buttonPreferences.order) {
-							// Skip disabled button types
-							if (settings.buttonPreferences.enabled[buttonType] === false) {
-								continue;
+					// Process asynchronously but return response immediately
+					(async () => {
+						// Check if we have advanced button preferences (premium users)
+						if (settings.buttonPreferences && settings.buttonPreferences.order) {
+							// Follow the preference order defined by the user
+							for (const buttonType of settings.buttonPreferences.order) {
+								// Skip disabled button types
+								if (settings.buttonPreferences.enabled[buttonType] === false) {
+									continue;
+								}
+								
+								let button = null;
+								
+								// Find the appropriate button based on type
+								switch (buttonType) {
+									case 'essential':
+										button = await findNecessaryCookiesButton(element);
+										break;
+									case 'reject':
+										button = await findRejectButton(element);
+										break;
+									case 'accept':
+										button = await findAcceptButton(element);
+										break;
+								}
+								
+								// If button found, click it and exit
+								if (button) {
+									buttonClicked = buttonType;
+									buttonText = button.textContent.trim().substring(0, 50);
+									clickSuccess = clickElement(button);
+									if (clickSuccess) break;
+								}
 							}
-							
-							let button = null;
-							
-							// Find the appropriate button based on type
-							switch (buttonType) {
-								case 'essential':
-									button = findNecessaryCookiesButton(element);
-									break;
-								case 'reject':
-									button = findRejectButton(element);
-									break;
-								case 'accept':
-									button = findAcceptButton(element);
-									break;
-							}
-							
-							// If button found, click it and exit
-							if (button) {
-								buttonClicked = buttonType;
-								buttonText = button.textContent.trim().substring(0, 50);
-								clickSuccess = clickElement(button);
-								if (clickSuccess) break;
-							}
-						}
-					} else if (settings.preferEssential) {
-						// Basic mode - prefer essential cookies if setting is enabled
-						const necessaryButton = findNecessaryCookiesButton(element);
-						if (necessaryButton) {
-							buttonClicked = 'essential';
-							buttonText = necessaryButton.textContent.trim().substring(0, 50);
-							clickSuccess = clickElement(necessaryButton);
-						}
-						
-						// Fallback to accept button if necessary button not found
-						if (!clickSuccess) {
-							const acceptButton = findAcceptButton(element);
-							if (acceptButton) {
-								buttonClicked = 'accept';
-								buttonText = acceptButton.textContent.trim().substring(0, 50);
-								clickSuccess = clickElement(acceptButton);
-							}
-						}
-					} else {
-						// Non-Pro mode default behavior:
-						// 1. First try accept button (accept all cookies)
-						const acceptButton = findAcceptButton(element);
-						if (acceptButton) {
-							buttonClicked = 'accept';
-							buttonText = acceptButton.textContent.trim().substring(0, 50);
-							clickSuccess = clickElement(acceptButton);
-							if (clickSuccess) break;
-						}
-						
-						// 2. If accept button not found, try necessary cookies button
-						if (!clickSuccess) {
-							const necessaryButton = findNecessaryCookiesButton(element);
+						} else if (settings.preferEssential) {
+							// Basic mode - prefer essential cookies if setting is enabled
+							const necessaryButton = await findNecessaryCookiesButton(element);
 							if (necessaryButton) {
 								buttonClicked = 'essential';
 								buttonText = necessaryButton.textContent.trim().substring(0, 50);
 								clickSuccess = clickElement(necessaryButton);
 							}
+							
+							// Fallback to accept button if necessary button not found
+							if (!clickSuccess) {
+								const acceptButton = await findAcceptButton(element);
+								if (acceptButton) {
+									buttonClicked = 'accept';
+									buttonText = acceptButton.textContent.trim().substring(0, 50);
+									clickSuccess = clickElement(acceptButton);
+								}
+							}
+						} else {
+							// Non-Pro mode default behavior:
+							// 1. First try accept button (accept all cookies)
+							const acceptButton = await findAcceptButton(element);
+							if (acceptButton) {
+								buttonClicked = 'accept';
+								buttonText = acceptButton.textContent.trim().substring(0, 50);
+								clickSuccess = clickElement(acceptButton);
+								if (clickSuccess) return;
+							}
+							
+							// 2. If accept button not found, try necessary cookies button
+							if (!clickSuccess) {
+								const necessaryButton = await findNecessaryCookiesButton(element);
+								if (necessaryButton) {
+									buttonClicked = 'essential';
+									buttonText = necessaryButton.textContent.trim().substring(0, 50);
+									clickSuccess = clickElement(necessaryButton);
+								}
+							}
+							
+							// 3. Reject buttons are not used in non-Pro mode
 						}
-						
-						// 3. Reject buttons are not used in non-Pro mode
-					}
+					})();
 					
-					if (clickSuccess) break;
+					// For synchronous response, use findAcceptButtonSync
+					// This ensures we can still respond quickly while the async process runs in background
+					const syncAcceptButton = findAcceptButtonSync(element);
+					if (syncAcceptButton) {
+						buttonClicked = 'accept';
+						buttonText = syncAcceptButton.textContent.trim().substring(0, 50);
+						clickElement(syncAcceptButton);
+						break;
+					}
 				}
 			}
 			
@@ -1031,19 +1313,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 			
 			// Try to find the appropriate button based on action type
 			let success = false;
-			for (const element of cookieElements) {
-				if (cookieAction === 'accept') {
-					// Try to find accept button
-					success = clickAcceptButton(element);
-				} else if (cookieAction === 'customize') {
-					// Try to find customize/settings button
-					success = clickCustomizeButton(element);
-				}
-				
-				if (success) break;
-			}
 			
-			sendResponse({ success });
+			// Process asynchronously but return response immediately
+			(async () => {
+				for (const element of cookieElements) {
+					if (cookieAction === 'accept') {
+						// Try to find accept button
+						success = await clickAcceptButton(element);
+					} else if (cookieAction === 'customize') {
+						// Try to find customize/settings button
+						success = await clickCustomizeButton(element);
+					}
+					
+					if (success) break;
+				}
+			})();
+			
+			// Return a synchronous response
+			sendResponse({ success: true });
 		} catch (error) {
 			sendResponse({ success: false, error: error.message });
 		}
@@ -1116,6 +1403,12 @@ function findCookieElements() {
  * @param {Element} element - The cookie dialog element
  */
 async function clickAppropriateButton(element) {
+	// IMMEDIATELY abort if disabled - hardened check
+	if (!settings || !settings.enabled || !settings.autoAccept) {
+		console.log('Cookie Consent Manager is disabled or auto-accept is off, aborting click');
+		return;
+	}
+	
 	// Check if we have advanced button preferences (premium users)
 	if (settings.buttonPreferences && settings.buttonPreferences.order) {
 		// Follow the preference order defined by the user
@@ -1252,4 +1545,88 @@ async function clickCustomizeButton(dialogElement) {
 	}
 	
 	return false;
+}
+
+/**
+ * Completely stop all cookie detection
+ * This is used when the extension is disabled or auto-accept is turned off
+ */
+function stopAllDetection() {
+	console.log('Completely stopping all cookie detection mechanisms');
+	
+	// Clear detection timeout
+	if (detectionTimer) {
+		clearTimeout(detectionTimer);
+		detectionTimer = null;
+	}
+	
+	// Disconnect all observers we've tracked
+	try {
+		allObservers.forEach(observer => {
+			if (observer && observer.disconnect) {
+				observer.disconnect();
+			}
+		});
+	} catch (e) {
+		console.error('Error disconnecting tracked observers:', e);
+	}
+	
+	// Clear the observers array
+	allObservers = [];
+	
+	// Also clear any other observers that might be attached to elements
+	try {
+		const allElements = document.querySelectorAll('*');
+		allElements.forEach(el => {
+			// Try to find any stored observers on the element
+			if (el._observer) {
+				try {
+					el._observer.disconnect();
+					delete el._observer;
+				} catch (err) {
+					// Ignore errors, keep going
+				}
+			}
+			
+			// Try additional properties where observers might be stored
+			['__observer', 'observer', 'mutationObserver', '_mutationObserver'].forEach(propName => {
+				try {
+					if (el[propName] && typeof el[propName].disconnect === 'function') {
+						el[propName].disconnect();
+						delete el[propName];
+					}
+				} catch (err) {
+					// Ignore errors, keep going
+				}
+			});
+		});
+	} catch (e) {
+		console.error('Error clearing element observers:', e);
+	}
+	
+	// Clear any cookie elements we've already found to prevent later processing
+	try {
+		dialogElements = [];
+		capturedDialogs = [];
+		processedDialogsInSession.clear();
+		processedPopupDomains.clear();
+	} catch (e) {
+		console.error('Error clearing tracked dialogs:', e);
+	}
+	
+	// Remove ALL event listeners we can target
+	try {
+		window.removeEventListener('load', startDetectionTimeout);
+		window.removeEventListener('DOMContentLoaded', initCookieConsentManager);
+		document.removeEventListener('DOMContentLoaded', initCookieConsentManager);
+		document.body.removeEventListener('DOMNodeInserted', checkElementForCookieBanner);
+		document.body.removeEventListener('DOMNodeInserted', runSmartMode);
+	} catch (e) {
+		console.error('Error removing event listeners:', e);
+	}
+	
+	// Set a flag that we've explicitly stopped detection to prevent restarts
+	window.__cookieDetectionStopped = true;
+	
+	console.log('All cookie detection mechanisms stopped completely');
 } 

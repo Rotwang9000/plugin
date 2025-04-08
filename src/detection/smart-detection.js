@@ -12,6 +12,32 @@ import { safeGetHtmlContent } from '../modules/html-utils.js';
 export function isCookieConsentDialog(element) {
 	if (!element) return false;
 	
+	// STRICT DATA ATTRIBUTE CHECK - Skip elements with data attributes that aren't cookie related
+	// This will help avoid detecting UI controls and other elements with data-* attributes
+	const hasDataAttributes = Array.from(element.attributes || [])
+		.some(attr => attr.name.startsWith('data-'));
+	
+	// These are the ONLY data attributes that are actually related to cookies
+	const hasCookieDataAttributes = element.hasAttribute('data-cookieconsent') || 
+		element.hasAttribute('data-cookie-notice') || 
+		element.hasAttribute('data-consent') ||
+		element.hasAttribute('data-gdpr') ||
+		element.hasAttribute('data-cookie');
+	
+	// If it has data attributes but none are cookie-related, it's likely a UI element not a cookie dialog
+	if (hasDataAttributes && !hasCookieDataAttributes) {
+		// Check if there's strong cookie text evidence to override this rule
+		const strongCookieText = element.textContent && 
+			(element.textContent.toLowerCase().includes('cookie') || 
+			 element.textContent.toLowerCase().includes('gdpr') ||
+			 element.textContent.toLowerCase().includes('consent'));
+		
+		// Skip unless it has very explicit cookie text
+		if (!strongCookieText) {
+			return false;
+		}
+	}
+	
 	// Get element HTML content in lowercase
 	const htmlContent = safeGetHtmlContent(element);
 	
@@ -37,7 +63,7 @@ export function isCookieConsentDialog(element) {
 		htmlContent.includes('settings')
 	);
 	
-	// Check for common dialog characteristics
+	// Check for common dialog characteristics, but IGNORE data attributes
 	const isDialog = (
 		element.classList.contains('cookie') ||
 		element.classList.contains('consent') ||
@@ -57,8 +83,33 @@ export function isCookieConsentDialog(element) {
 		window.getComputedStyle(element).position === 'sticky'
 	);
 	
-	// Combination of factors
-	return (hasCookieTerms && hasActionButtons) || (isDialog && (hasCookieTerms || hasActionButtons)) || (isFixed && hasCookieTerms);
+	// Combination of factors - enhanced with more specific conditions
+	const isCookieBox = (hasCookieTerms && hasActionButtons) || 
+		(isDialog && (hasCookieTerms || hasActionButtons)) || 
+		(isFixed && hasCookieTerms && element.querySelectorAll('button, a.button, input[type="button"]').length > 0);
+	
+	// Additional checks for small UI elements that might be falsely detected
+	if (isCookieBox) {
+		// Cookie dialogs are usually substantial in size
+		const rect = element.getBoundingClientRect();
+		
+		// Skip extremely small elements that are unlikely to be cookie dialogs
+		if (rect.width < 100 || rect.height < 40) {
+			return false;
+		}
+		
+		// Skip elements that are likely UI controls from frameworks
+		const suspiciousClassPatterns = ['ui-', 'btn-', 'dropdown', 'modal-', 'nav-', 'navbar-'];
+		const hasFrameworkClasses = suspiciousClassPatterns.some(pattern => 
+			Array.from(element.classList || []).some(cls => cls.startsWith(pattern))
+		);
+		
+		if (hasFrameworkClasses && !isDialog && !hasCookieDataAttributes) {
+			return false;
+		}
+	}
+	
+	return isCookieBox;
 }
 
 /**
@@ -81,7 +132,6 @@ export function findCookieConsentDialogs(callback) {
 		'.gdpr-consent',
 		'[aria-label*="cookie"]',
 		'[aria-label*="consent"]',
-		'[data-testid*="cookie"]',
 		'div[class*="cookie"]',
 		'div[class*="gdpr"]',
 		'div[class*="consent"]',

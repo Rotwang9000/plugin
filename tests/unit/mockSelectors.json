@@ -1,0 +1,209 @@
+{
+  "buttonTypes": {
+    "accept": {
+      "selectors": [
+        {
+          "query": "#acceptBtn",
+          "priority": 10
+        },
+        {
+          "query": "button[id*=\"accept\"]",
+          "priority": 8
+        },
+        {
+          "query": ".accept-button",
+          "priority": 9
+        }
+      ],
+      "textPatterns": [
+        {
+          "pattern": "accept all cookies",
+          "priority": 10
+        },
+        {
+          "pattern": "accept all",
+          "priority": 9
+        },
+        {
+          "pattern": "accept",
+          "priority": 5
+        }
+      ],
+      "excludePatterns": [
+        "settings",
+        "preferences"
+      ]
+    },
+    "reject": {
+      "selectors": [
+        {
+          "query": "#rejectBtn",
+          "priority": 10
+        },
+        {
+          "query": "button[id*=\"reject\"]",
+          "priority": 8
+        }
+      ],
+      "textPatterns": [
+        {
+          "pattern": "reject all",
+          "priority": 10
+        },
+        {
+          "pattern": "necessary only",
+          "priority": 9
+        },
+        {
+          "pattern": "reject",
+          "priority": 6
+        }
+      ]
+    },
+    "customize": {
+      "selectors": [
+        {
+          "query": "#settingsBtn",
+          "priority": 10
+        },
+        {
+          "query": "button[id*=\"settings\"]",
+          "priority": 8
+        }
+      ],
+      "textPatterns": [
+        {
+          "pattern": "cookie settings",
+          "priority": 10
+        },
+        {
+          "pattern": "settings",
+          "priority": 8
+        }
+      ]
+    }
+  },
+  "checkboxTypes": {
+    "analytics": {
+      "selectors": [
+        {
+          "query": "#analyticsCheckbox",
+          "priority": 10
+        },
+        {
+          "query": "input[name*=\"analytics\"]",
+          "priority": 8
+        }
+      ],
+      "textPatterns": [
+        {
+          "pattern": "analytics cookies",
+          "priority": 10
+        },
+        {
+          "pattern": "analytics",
+          "priority": 8
+        }
+      ]
+    },
+    "advertising": {
+      "selectors": [
+        {
+          "query": "#advertisingCheckbox",
+          "priority": 10
+        },
+        {
+          "query": "input[name*=\"advertising\"]",
+          "priority": 8
+        }
+      ],
+      "textPatterns": [
+        {
+          "pattern": "advertising cookies",
+          "priority": 10
+        },
+        {
+          "pattern": "marketing",
+          "priority": 8
+        }
+      ]
+    },
+    "necessary": {
+      "selectors": [
+        {
+          "query": "#necessaryCheckbox",
+          "priority": 10
+        },
+        {
+          "query": "input[name*=\"necessary\"]",
+          "priority": 8
+        }
+      ],
+      "textPatterns": [
+        {
+          "pattern": "necessary cookies",
+          "priority": 10
+        },
+        {
+          "pattern": "essential",
+          "priority": 9
+        }
+      ]
+    }
+  },
+  "dialogSelectors": {
+    "selectors": [
+      {
+        "query": "#cookieDialog",
+        "priority": 10
+      },
+      {
+        "query": ".cookie-notice",
+        "priority": 8
+      }
+    ],
+    "textPatterns": [
+      {
+        "pattern": "cookie policy",
+        "priority": 10
+      },
+      {
+        "pattern": "cookie preferences",
+        "priority": 9
+      }
+    ],
+    "excludeSelectors": [
+      "footer [class*=\"cookie\"]"
+    ]
+  },
+  "regionDetection": {
+    "eu": {
+      "textPatterns": [
+        {
+          "pattern": "gdpr",
+          "priority": 10
+        },
+        {
+          "pattern": "european union",
+          "priority": 10
+        }
+      ],
+      "locationPatterns": [
+        ".eu",
+        ".uk"
+      ]
+    },
+    "california": {
+      "textPatterns": [
+        {
+          "pattern": "ccpa",
+          "priority": 10
+        },
+        {
+          "pattern": "california residents",
+          "priority": 8
+        }
+      ]
+    }
+  }
+}

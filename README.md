@@ -40,6 +40,41 @@ The details page for each site now includes:
 
 ## Development
 
+### Selectors Management
+
+The extension uses a centralized `selectors.json` file to manage element selection across the codebase. This file contains structured data for finding cookie consent elements:
+
+- **dialogSelectors**: CSS selectors for finding cookie consent dialogs with priority levels
+- **dialogPatterns**: Content and attribute patterns for identifying dialogs
+- **buttonTypes**: Categories of buttons (accept, reject, customize) with:
+  - Selectors: CSS queries with priority
+  - Text patterns: Common button text with priority
+- **checkboxTypes**: Definitions for checkbox identification
+- **regionDetection**: Rules for detecting geographical regions
+
+The selectors system uses priority-based matching, trying highest priority selectors first before falling back to more generic patterns. This allows for precise targeting of specific implementations while maintaining broad compatibility.
+
+To modify selectors:
+1. Edit the `selectors.json` file
+2. Run the test suite to ensure everything works with your changes
+3. The changes will be picked up automatically when the extension runs
+
+Example selector structure:
+```json
+{
+  "buttonTypes": {
+    "accept": {
+      "selectors": [
+        { "query": "#acceptBtn", "priority": 10, "description": "Common accept button ID" }
+      ],
+      "textPatterns": [
+        { "pattern": "accept all", "priority": 9, "description": "Accept all text" }
+      ]
+    }
+  }
+}
+```
+
 ### Testing
 
 The project includes a comprehensive test suite with 258 tests covering:
@@ -480,6 +515,54 @@ MIT
 
 ### Improved Detection Logic
 
+- **Unified Button Recognition**: Consolidated multiple button detection functions into a unified system that uses external configuration.
+- **Async/Sync Detection**: New Promise-based selectors loading with async button detection, plus backward compatibility through sync fallbacks.
 - **Unique Dialog Identification**: Each dialog now has a unique identifier based on its properties, ensuring we can reliably track which ones have been processed.
 - **Content-based Button Matching**: Buttons are now matched using configurable text patterns from the JSON file, improving accuracy across different languages.
-- **Special Dialog Handling**: Added support for special dialog types that should be detected but not automatically closed. 
+- **Special Dialog Handling**: Added support for special dialog types that should be detected but not automatically closed.
+
+## External Selectors Configuration
+
+The extension uses a JSON configuration file (`selectors.json`) for all selectors and text patterns. This file includes:
+
+```json
+{
+  "cookieDialogSelectors": [
+    "Common selectors for cookie dialogs"
+  ],
+  "dialogTypes": {
+    "xGrokHistory": {
+      "selectors": ["Selectors for special dialogs like X/Grok"]
+    }
+  },
+  "buttonTypes": {
+    "accept": {
+      "selectors": ["Selectors for accept buttons"],
+      "textPatterns": ["Text patterns for accept buttons"]
+    },
+    "reject": {
+      "selectors": ["Selectors for reject buttons"],
+      "textPatterns": ["Text patterns for reject buttons"]
+    },
+    "necessary": {
+      "selectors": ["Selectors for necessary-only buttons"],
+      "textPatterns": ["Text patterns for necessary-only buttons"]
+    },
+    "customize": {
+      "selectors": ["Selectors for customize buttons"],
+      "textPatterns": ["Text patterns for customize buttons"]
+    }
+  }
+}
+```
+
+This configuration can be updated without changing code, enabling easy maintenance and localization.
+
+## Recent Updates
+
+### Cookie Detection Improvements (April 2023)
+- Fixed an issue where the cookie detection would continue to run even when the extension was disabled
+- Added a 10-second timeout for detection after page load to improve performance
+- Implemented domain-based popup tracking to prevent closing multiple popups on the same domain in a single session
+- Fixed issues with incorrectly detecting non-cookie dialogs (such as X/Twitter history windows)
+- Added better test coverage for cookie detection functionality 

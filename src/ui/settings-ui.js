@@ -63,6 +63,31 @@ export function updateUIFromSettings(settings) {
 		}
 	});
 	
+	// Apply disabled styling to individual setting rows when extension is disabled
+	queryAndProcess('.setting-row', row => {
+		// Don't style the row containing the enabled checkbox
+		if (!row.querySelector('#enabled')) {
+			if (!settings.enabled) {
+				row.classList.add('disabled-setting');
+			} else {
+				row.classList.remove('disabled-setting');
+			}
+		}
+	});
+	
+	// Apply disabled styling to labels when the extension is disabled
+	queryAndProcess('.setting-label', label => {
+		// Don't style the label for the enabled checkbox
+		const inputId = label.getAttribute('for');
+		if (inputId && inputId !== 'enabled') {
+			if (!settings.enabled) {
+				label.classList.add('disabled-text');
+			} else {
+				label.classList.remove('disabled-text');
+			}
+		}
+	});
+	
 	// Update UI for dev mode
 	updateDevModeUI(settings.devMode);
 	

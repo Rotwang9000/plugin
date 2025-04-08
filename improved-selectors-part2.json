@@ -1,0 +1,538 @@
+{
+  "buttonTypes": {
+    "reject": {
+      "selectors": [
+        {
+          "query": "#onetrust-reject-all-handler",
+          "priority": 10,
+          "description": "OneTrust reject button"
+        },
+        {
+          "query": "#rejectBtn",
+          "priority": 10,
+          "description": "Common reject button ID"
+        },
+        {
+          "query": "#reject-button",
+          "priority": 10,
+          "description": "Common reject button ID (hyphenated)"
+        },
+        {
+          "query": "#reject_button",
+          "priority": 10,
+          "description": "Common reject button ID (underscored)"
+        },
+        {
+          "query": "#rejectAll",
+          "priority": 10,
+          "description": "Reject all button ID (camelCase)"
+        },
+        {
+          "query": "#reject-all",
+          "priority": 10,
+          "description": "Reject all button ID (hyphenated)"
+        },
+        {
+          "query": "#necessary-only",
+          "priority": 10,
+          "description": "Necessary only button ID"
+        },
+        {
+          "query": "#essentialOnly",
+          "priority": 10,
+          "description": "Essential only button ID"
+        },
+        {
+          "query": "button[id*='reject']",
+          "priority": 8,
+          "description": "Button with 'reject' in ID"
+        },
+        {
+          "query": "button[id*='decline']",
+          "priority": 8,
+          "description": "Button with 'decline' in ID"
+        },
+        {
+          "query": "button[id*='refuse']",
+          "priority": 8,
+          "description": "Button with 'refuse' in ID"
+        },
+        {
+          "query": "[id*='necessary']",
+          "priority": 8,
+          "description": "Element with 'necessary' in ID"
+        },
+        {
+          "query": "[id*='essential']",
+          "priority": 8,
+          "description": "Element with 'essential' in ID"
+        },
+        {
+          "query": ".reject-button",
+          "priority": 9,
+          "description": "Reject button class (hyphenated)"
+        },
+        {
+          "query": ".reject_button",
+          "priority": 9,
+          "description": "Reject button class (underscored)"
+        },
+        {
+          "query": ".rejectBtn",
+          "priority": 9,
+          "description": "Reject button class (camelCase)"
+        },
+        {
+          "query": ".reject-all",
+          "priority": 9,
+          "description": "Reject all class (hyphenated)"
+        },
+        {
+          "query": ".rejectAll",
+          "priority": 9,
+          "description": "Reject all class (camelCase)"
+        },
+        {
+          "query": ".cc-reject-all",
+          "priority": 9,
+          "description": "CookieConsent reject all button"
+        },
+        {
+          "query": ".js-reject-cookies",
+          "priority": 9,
+          "description": "JavaScript reject cookies button"
+        },
+        {
+          "query": "#CybotCookiebotDialogBodyLevelButtonLevelOptinDeclineAll",
+          "priority": 10,
+          "description": "CookieBot decline all button"
+        },
+        {
+          "query": ".cc-accept-necessary",
+          "priority": 9,
+          "description": "CookieConsent accept necessary only"
+        },
+        {
+          "query": ".js-accept-essential",
+          "priority": 9,
+          "description": "JavaScript accept essential only"
+        },
+        {
+          "query": "[class*='reject']",
+          "priority": 7,
+          "description": "Element with 'reject' in class"
+        },
+        {
+          "query": "[class*='decline']",
+          "priority": 7,
+          "description": "Element with 'decline' in class"
+        },
+        {
+          "query": "[class*='refuse']",
+          "priority": 7,
+          "description": "Element with 'refuse' in class"
+        },
+        {
+          "query": "[class*='necessary']",
+          "priority": 7,
+          "description": "Element with 'necessary' in class"
+        },
+        {
+          "query": "[class*='essential']",
+          "priority": 7,
+          "description": "Element with 'essential' in class"
+        }
+      ],
+      "textPatterns": [
+        {
+          "pattern": "reject all",
+          "priority": 10,
+          "caseSensitive": false,
+          "description": "Reject all text"
+        },
+        {
+          "pattern": "reject cookies",
+          "priority": 9,
+          "caseSensitive": false,
+          "description": "Reject cookies text"
+        },
+        {
+          "pattern": "reject all cookies",
+          "priority": 10,
+          "caseSensitive": false,
+          "description": "Reject all cookies text"
+        },
+        {
+          "pattern": "necessary only",
+          "priority": 9,
+          "caseSensitive": false,
+          "description": "Necessary only text"
+        },
+        {
+          "pattern": "essential only",
+          "priority": 9,
+          "caseSensitive": false,
+          "description": "Essential only text"
+        },
+        {
+          "pattern": "only necessary",
+          "priority": 9,
+          "caseSensitive": false,
+          "description": "Only necessary text"
+        },
+        {
+          "pattern": "only essential",
+          "priority": 9,
+          "caseSensitive": false,
+          "description": "Only essential text"
+        },
+        {
+          "pattern": "necessary cookies only",
+          "priority": 10,
+          "caseSensitive": false,
+          "description": "Necessary cookies only text"
+        },
+        {
+          "pattern": "essential cookies only",
+          "priority": 10,
+          "caseSensitive": false,
+          "description": "Essential cookies only text"
+        },
+        {
+          "pattern": "reject",
+          "priority": 6,
+          "caseSensitive": false,
+          "description": "Reject text"
+        },
+        {
+          "pattern": "necessary",
+          "priority": 6,
+          "caseSensitive": false,
+          "description": "Necessary text"
+        },
+        {
+          "pattern": "essential",
+          "priority": 6,
+          "caseSensitive": false,
+          "description": "Essential text"
+        },
+        {
+          "pattern": "decline",
+          "priority": 6,
+          "caseSensitive": false,
+          "description": "Decline text"
+        },
+        {
+          "pattern": "decline all",
+          "priority": 9,
+          "caseSensitive": false,
+          "description": "Decline all text"
+        },
+        {
+          "pattern": "decline cookies",
+          "priority": 9,
+          "caseSensitive": false,
+          "description": "Decline cookies text"
+        },
+        {
+          "pattern": "refuse",
+          "priority": 6,
+          "caseSensitive": false,
+          "description": "Refuse text"
+        },
+        {
+          "pattern": "refuse all",
+          "priority": 9,
+          "caseSensitive": false,
+          "description": "Refuse all text"
+        },
+        {
+          "pattern": "no thanks",
+          "priority": 7,
+          "caseSensitive": false,
+          "description": "No thanks text"
+        },
+        {
+          "pattern": "no",
+          "priority": 3,
+          "caseSensitive": false,
+          "description": "No text"
+        },
+        {
+          "pattern": "i do not accept",
+          "priority": 9,
+          "caseSensitive": false,
+          "description": "I do not accept text"
+        },
+        {
+          "pattern": "i disagree",
+          "priority": 8,
+          "caseSensitive": false,
+          "description": "I disagree text"
+        },
+        {
+          "pattern": "later",
+          "priority": 4,
+          "caseSensitive": false,
+          "description": "Later text (often used to reject)"
+        }
+      ],
+      "excludePatterns": [
+        "settings",
+        "preferences",
+        "more info",
+        "learn more",
+        "customize",
+        "customise",
+        "manage",
+        "options",
+        "details"
+      ],
+      "stylePatterns": [
+        {
+          "property": "border",
+          "values": ["1px", "2px", "solid", "outline"],
+          "priority": 2,
+          "description": "Outlined button (often secondary action)"
+        },
+        {
+          "property": "backgroundColor",
+          "values": ["transparent", "rgba(0, 0, 0, 0)"],
+          "priority": 2,
+          "description": "Transparent background (often secondary action)"
+        },
+        {
+          "property": "textDecoration",
+          "values": ["underline"],
+          "priority": 2,
+          "description": "Underlined text (often secondary action)"
+        }
+      ]
+    },
+    "customize": {
+      "selectors": [
+        {
+          "query": "#onetrust-pc-btn-handler",
+          "priority": 10,
+          "description": "OneTrust preference center button"
+        },
+        {
+          "query": "#customizeBtn",
+          "priority": 10,
+          "description": "Common customize button ID"
+        },
+        {
+          "query": "#customize-button",
+          "priority": 10,
+          "description": "Common customize button ID (hyphenated)"
+        },
+        {
+          "query": "#cookie-settings",
+          "priority": 10,
+          "description": "Cookie settings button ID"
+        },
+        {
+          "query": "#cookieSettings",
+          "priority": 10,
+          "description": "Cookie settings button ID (camelCase)"
+        },
+        {
+          "query": "button[id*='settings']",
+          "priority": 8,
+          "description": "Button with 'settings' in ID"
+        },
+        {
+          "query": "button[id*='custom']",
+          "priority": 8,
+          "description": "Button with 'custom' in ID"
+        },
+        {
+          "query": "button[id*='preferences']",
+          "priority": 8,
+          "description": "Button with 'preferences' in ID"
+        },
+        {
+          "query": "button[id*='manage']",
+          "priority": 8,
+          "description": "Button with 'manage' in ID"
+        },
+        {
+          "query": ".customize-button",
+          "priority": 9,
+          "description": "Customize button class (hyphenated)"
+        },
+        {
+          "query": ".customize_button",
+          "priority": 9,
+          "description": "Customize button class (underscored)"
+        },
+        {
+          "query": ".customizeBtn",
+          "priority": 9,
+          "description": "Customize button class (camelCase)"
+        },
+        {
+          "query": ".cookie-settings",
+          "priority": 9,
+          "description": "Cookie settings class (hyphenated)"
+        },
+        {
+          "query": ".cookieSettings",
+          "priority": 9,
+          "description": "Cookie settings class (camelCase)"
+        },
+        {
+          "query": ".js-cookie-preferences",
+          "priority": 9,
+          "description": "JavaScript cookie preferences button"
+        },
+        {
+          "query": ".cc-customize",
+          "priority": 9,
+          "description": "CookieConsent customize button"
+        },
+        {
+          "query": "#CybotCookiebotDialogBodyLevelDetailsButton",
+          "priority": 10,
+          "description": "CookieBot details button"
+        },
+        {
+          "query": "[class*='settings']",
+          "priority": 7,
+          "description": "Element with 'settings' in class"
+        },
+        {
+          "query": "[class*='custom']",
+          "priority": 7,
+          "description": "Element with 'custom' in class"
+        },
+        {
+          "query": "[class*='preferences']",
+          "priority": 7,
+          "description": "Element with 'preferences' in class"
+        },
+        {
+          "query": "[class*='manage']",
+          "priority": 7,
+          "description": "Element with 'manage' in class"
+        }
+      ],
+      "textPatterns": [
+        {
+          "pattern": "cookie settings",
+          "priority": 10,
+          "caseSensitive": false,
+          "description": "Cookie settings text"
+        },
+        {
+          "pattern": "customize cookies",
+          "priority": 10,
+          "caseSensitive": false,
+          "description": "Customize cookies text"
+        },
+        {
+          "pattern": "customise cookies",
+          "priority": 10,
+          "caseSensitive": false,
+          "description": "Customise cookies text (UK spelling)"
+        },
+        {
+          "pattern": "manage cookies",
+          "priority": 10,
+          "caseSensitive": false,
+          "description": "Manage cookies text"
+        },
+        {
+          "pattern": "manage preferences",
+          "priority": 10,
+          "caseSensitive": false,
+          "description": "Manage preferences text"
+        },
+        {
+          "pattern": "cookie preferences",
+          "priority": 10,
+          "caseSensitive": false,
+          "description": "Cookie preferences text"
+        },
+        {
+          "pattern": "cookie choices",
+          "priority": 10,
+          "caseSensitive": false,
+          "description": "Cookie choices text"
+        },
+        {
+          "pattern": "preferences",
+          "priority": 8,
+          "caseSensitive": false,
+          "description": "Preferences text"
+        },
+        {
+          "pattern": "settings",
+          "priority": 8,
+          "caseSensitive": false,
+          "description": "Settings text"
+        },
+        {
+          "pattern": "manage",
+          "priority": 7,
+          "caseSensitive": false,
+          "description": "Manage text"
+        },
+        {
+          "pattern": "customize",
+          "priority": 8,
+          "caseSensitive": false,
+          "description": "Customize text"
+        },
+        {
+          "pattern": "customise",
+          "priority": 8,
+          "caseSensitive": false,
+          "description": "Customise text (UK spelling)"
+        },
+        {
+          "pattern": "choose",
+          "priority": 6,
+          "caseSensitive": false,
+          "description": "Choose text"
+        },
+        {
+          "pattern": "select",
+          "priority": 6,
+          "caseSensitive": false,
+          "description": "Select text"
+        },
+        {
+          "pattern": "options",
+          "priority": 7,
+          "caseSensitive": false,
+          "description": "Options text"
+        },
+        {
+          "pattern": "more options",
+          "priority": 8,
+          "caseSensitive": false,
+          "description": "More options text"
+        },
+        {
+          "pattern": "details",
+          "priority": 6,
+          "caseSensitive": false,
+          "description": "Details text"
+        },
+        {
+          "pattern": "more information",
+          "priority": 6,
+          "caseSensitive": false,
+          "description": "More information text"
+        }
+      ],
+      "excludePatterns": [
+        "privacy policy",
+        "learn more about",
+        "more about",
+        "find out more"
+      ]
+    }
+  }
+} 

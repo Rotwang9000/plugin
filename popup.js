@@ -23,373 +23,30 @@ let currentDialog = null;
 let currentDialogId = null;
 let settings = {};
 
-document.addEventListener('DOMContentLoaded', () => {
-	// Add CSS for the button-type-list class
-	const style = document.createElement('style');
-	style.textContent = `
-		.button-type-list {
-			margin-bottom: 5px;
-			font-size: 12px;
-			color: #666;
-		}
-		
-		/* Cookie detection status styles */
-		.cookie-detection-status {
-			background-color: white;
-			border-radius: 5px;
-			box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-			margin-bottom: 15px;
-			overflow: hidden;
-			cursor: pointer;
-			transition: transform 0.2s;
-		}
-		
-		/* Simple mode styling for non-dev mode */
-		.simple-mode .element-row {
-			display: none;
-		}
-		
-		.simple-mode .rating-buttons {
-			margin-top: 0;
-		}
-		
-		/* Hide Analyze tab in non-dev mode */
-		.tab[data-tab="analyze"].dev-mode-hidden {
-			display: none;
-		}
-		
-		/* Cookie detection status styles */
-		.cookie-detection-status:hover {
-			transform: translateY(-2px);
-			box-shadow: 0 3px 6px rgba(0,0,0,0.15);
-		}
-		
-		/* Button preference UI styles */
-		.preference-list {
-			margin: 10px 0;
-			border: 1px solid #eee;
-			border-radius: 5px;
-			overflow: hidden;
-		}
-		
-		.preference-item {
-			display: flex;
-			align-items: center;
-			padding: 8px 10px;
-			border-bottom: 1px solid #eee;
-			background-color: white;
-		}
-		
-		.preference-item:last-child {
-			border-bottom: none;
-		}
-		
-		.preference-item.dragging {
-			background-color: #f9f9f9;
-			box-shadow: 0 0 5px rgba(0,0,0,0.1);
-		}
-		
-		.drag-handle {
-			margin-right: 8px;
-			cursor: grab;
-			color: #999;
-			font-size: 16px;
-		}
-		
-		.preference-label {
-			flex: 1;
-			font-size: 13px;
-		}
-		
-		.toggle.small input:checked + .slider {
-			background-color: #4CAF50;
-		}
-		
-		.toggle.small .slider {
-			width: 30px;
-			height: 16px;
-		}
-		
-		.toggle.small .slider:before {
-			height: 10px;
-			width: 10px;
-			left: 3px;
-			bottom: 3px;
-		}
-		
-		.toggle.small input:checked + .slider:before {
-			transform: translateX(14px);
-		}
-		
-		.feature-note {
-			font-size: 11px;
-			color: #666;
-			margin-top: 5px;
-			font-style: italic;
-		}
-		
-		.detection-header {
-			padding: 12px 15px;
-			font-weight: bold;
-			font-size: 14px;
-			border-bottom: 1px solid #eee;
-			display: flex;
-			align-items: center;
-			justify-content: space-between;
-		}
-		
-		.detection-content {
-			padding: 15px;
-			font-size: 13px;
-		}
-		
-		.status-success {
-			border-left: 4px solid #4CAF50;
-		}
-		.status-success .detection-header {
-			background-color: #e8f5e9;
-			color: #2E7D32;
-		}
-		
-		.status-warning {
-			border-left: 4px solid #FFC107;
-		}
-		.status-warning .detection-header {
-			background-color: #fff8e1;
-			color: #FF6F00;
-		}
-		
-		.status-error {
-			border-left: 4px solid #F44336;
-		}
-		.status-error .detection-header {
-			background-color: #ffebee;
-			color: #C62828;
-		}
-		
-		.status-info {
-			border-left: 4px solid #2196F3;
-		}
-		.status-info .detection-header {
-			background-color: #e3f2fd;
-			color: #0D47A1;
-		}
-		
-		.status-none {
-			border-left: 4px solid #9E9E9E;
-		}
-		.status-none .detection-header {
-			background-color: #f5f5f5;
-			color: #424242;
-		}
-		
-		.status-icon {
-			margin-right: 10px;
-			font-size: 16px;
-		}
-		
-		.view-details {
-			color: #673AB7;
-			text-decoration: underline;
-			font-size: 12px;
-			margin-top: 10px;
-			display: inline-block;
-			cursor: pointer;
-		}
-		
-		.history-item {
-			background-color: white;
-			margin-bottom: 10px;
-			padding: 10px;
-			border-radius: 5px;
-			box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-			cursor: pointer;
-		}
-		
-		.history-item:hover {
-			background-color: #f5f5f5;
-		}
-		
-		.history-item.active {
-			border-left: 3px solid #673AB7;
-			background-color: #f0f0f0;
-		}
-		
-		.reviewed {
-			border-left: 3px solid #4CAF50;
-		}
-		
-		.not-reviewed {
-			border-left: 3px solid #FFC107;
-		}
-		
-		.history-controls {
-			display: flex;
-			justify-content: space-between;
-			margin-bottom: 15px;
-		}
-		
-		.filter-select {
-			padding: 5px;
-			border-radius: 3px;
-			border: 1px solid #ddd;
-			flex-grow: 1;
-			margin-right: 10px;
-		}
-		
-		.clear-button {
-			padding: 5px 10px;
-			background-color: #F44336;
-			color: white;
-			border: none;
-			border-radius: 3px;
-			cursor: pointer;
-		}
-		
-		.button-display-container {
-			margin-bottom: 15px;
-			padding: 10px;
-			background-color: #f5f5f5;
-			border-radius: 5px;
-			font-size: 13px;
-		}
-		
-		.cookie-button {
-			display: inline-block;
-			margin-right: 5px;
-			margin-bottom: 5px;
-			padding: 5px 10px;
-			background-color: #e0e0e0;
-			border-radius: 3px;
-			cursor: pointer;
-			font-size: 12px;
-		}
-		
-		.cookie-button.selected {
-			background-color: #673AB7;
-			color: white;
-		}
-		
-		.action-button {
-			padding: 5px 10px;
-			background-color: #673AB7;
-			color: white;
-			border: none;
-			border-radius: 3px;
-			cursor: pointer;
-			margin-right: 5px;
-			margin-top: 10px;
-		}
-		
-		.detail-section {
-			margin-top: 15px;
-			padding: 10px;
-			background-color: #f5f5f5;
-			border-radius: 5px;
-		}
-		
-		.detail-item {
-			margin-bottom: 10px;
-			font-size: 13px;
-		}
-		
-		#recommendationsList {
-			font-size: 13px;
-		}
-	`;
-	document.head.appendChild(style);
+// Initialize the popup when the DOM is loaded
+document.addEventListener('DOMContentLoaded', function() {
+	// Set up settings toggles and their visual state
+	setupSettingsToggles();
 	
-	// Initialize tooltips
-	initTooltips();
+	// Set up tab switching
+	setupTabSwitching();
 	
-	// Initialize tab navigation first to ensure we can switch tabs programmatically
-	initProperTabNavigation();
+	// Check for cookie dialogs
+	checkForCookieBoxes();
 	
-	// Initialize settings controls with proper saving
-	initProperSettingsControls();
-	
-	// Set up event listeners for the account tab
+	// Setup account tab
 	setupAccountTab();
 	
-	// Initial loading of settings and data
-	loadSettings().then(settings => {
-		// First check for test premium mode
-		chrome.storage.local.get(['testPremiumMode'], (testResult) => {
-			// If test premium mode is enabled, treat as premium
-			if (testResult.testPremiumMode === true) {
-				const isPremium = true;
-				
-				// Continue with UI updates
-				updateUIFromSettings(settings);
-				updateDevModeUI(settings.devMode);
-				updateStatus(settings);
-				updateSubscriptionUI(isPremium);
-				
-				// Check data collection consent
-				checkDataCollectionConsent();
-				
-				// Check cookie status on current page
-				updateCurrentPageStatus();
-				return;
-			}
-			
-			// Otherwise check actual premium status
-			sendMessageToBackgroundAsync({ action: 'checkPremiumStatus' })
-				.then(response => {
-					const isPremium = response.isPremium;
-					
-					// If preferEssential is enabled but user is not premium, disable it
-					if (settings.preferEssential && !isPremium) {
-						settings.preferEssential = false;
-						saveSettings(settings).then(() => {
-							console.log('Disabled premium feature for non-premium user');
-						});
-					}
-					
-					// Continue with UI updates
-					updateUIFromSettings(settings);
-					updateDevModeUI(settings.devMode);
-					updateStatus(settings);
-					updateSubscriptionUI(isPremium);
-					
-					// Check data collection consent
-					checkDataCollectionConsent();
-					
-					// Check cookie status on current page
-					updateCurrentPageStatus();
-				})
-				.catch(error => {
-					console.error('Failed to check premium status:', error);
-					
-					// Continue with UI updates anyway
-					updateUIFromSettings(settings);
-					updateDevModeUI(settings.devMode);
-					updateStatus(settings);
-					updateSubscriptionUI(false); // Default to free plan
-					
-					// Check data collection consent
-					checkDataCollectionConsent();
-					
-					// Check cookie status on current page
-					updateCurrentPageStatus();
-				});
-		});
-	});
+	// Load button preferences
+	loadButtonPreferences();
 	
-	// Setup other tabs
-	setupDashboardTab();
-	setupAnalyzeTab();
-	
-	// Load and display dialogs in the history tab
-	loadAllDialogs().then(dialogs => {
-		displayAllDialogs(dialogs);
-	});
-	
-	// Update the dialog count badge
-	updateDialogCount();
-	
-	// Make sure premium features are disabled with overlay
+	// Disable premium features for non-premium users
 	disablePremiumFeatures();
+	
+	// Update cookie detection status
+	updateCookieDetectionStatus();
+	
+	// ... (rest of existing DOMContentLoaded code) ...
 });
 
 // Initialize tab navigation with proper tab switching
@@ -544,24 +201,76 @@ function initProperSettingsControls() {
 			// Update the changed setting
 			settings[key] = value;
 			
+			// Special handling for toggling extension or auto-accept
+			const isEnabledChange = key === 'enabled';
+			const isAutoAcceptChange = key === 'autoAccept';
+			
+			// Immediately update UI based on settings change
+			updateUIFromSettings(settings);
+			
+			// If it's an enabled change, update disabled state of all other controls
+			if (isEnabledChange) {
+				// Set disabled state on all checkboxes except enabled
+				document.querySelectorAll('input[type="checkbox"]:not(#enabled)').forEach(checkbox => {
+					checkbox.disabled = !settings.enabled;
+				});
+				
+				// Apply or remove disabled styling to all settings sections
+				document.querySelectorAll('.settings-section').forEach(section => {
+					if (!section.querySelector('#enabled')) {
+						if (!settings.enabled) {
+							section.classList.add('disabled-section');
+						} else {
+							section.classList.remove('disabled-section');
+						}
+					}
+				});
+				
+				// Apply or remove disabled styling to individual setting rows
+				document.querySelectorAll('.setting-row').forEach(row => {
+					if (!row.querySelector('#enabled')) {
+						if (!settings.enabled) {
+							row.classList.add('disabled-setting');
+						} else {
+							row.classList.remove('disabled-setting');
+						}
+					}
+				});
+				
+				// Apply or remove disabled styling to labels
+				document.querySelectorAll('.setting-label').forEach(label => {
+					const inputId = label.getAttribute('for');
+					if (inputId && inputId !== 'enabled') {
+						if (!settings.enabled) {
+							label.classList.add('disabled-text');
+						} else {
+							label.classList.remove('disabled-text');
+						}
+					}
+				});
+			}
+			
 			// Save the updated settings
 			saveSettings(settings).then(() => {
 				// Display success status
 				updateStatus(settings);
-				
-				// Update UI based on settings
-				updateUIFromSettings(settings);
 				
 				// If dev mode changed, update visibility
 				if (key === 'devMode') {
 					updateDevModeUI(settings.devMode);
 				}
 				
-				// Send settings to background script
-				sendMessageToBackgroundAsync({
+				// Send settings to background script with specific flags for enabled/autoAccept changes
+				const messageData = {
 					action: 'settingsUpdated',
-					settings: settings
-				}).catch(error => {
+					settings: {
+						...settings,
+						// For background script to know which setting changed
+						_changedSetting: key
+					}
+				};
+				
+				sendMessageToBackgroundAsync(messageData).catch(error => {
 					console.error('Error updating settings in background script:', error);
 				});
 			});
@@ -1970,4 +1679,97 @@ function addDialogActionButtons(container = null) {
 			URL.revokeObjectURL(url);
 		}
 	});
+} 
+
+// Update feature toggles when enabled/disabled state changes
+function updateFeatureTogglesState(enabled) {
+	// Get all toggles except the main enabled toggle
+	const featureToggles = document.querySelectorAll('input[type="checkbox"]:not(#enabled)');
+	const featureLabels = document.querySelectorAll('.toggle-label:not(:first-child)');
+	
+	featureToggles.forEach(toggle => {
+		// Set visual style for disable state, but don't actually change the checked state
+		// This prevents losing user settings when temporarily turning off the extension
+		toggle.disabled = !enabled;
+		
+		// Add/remove greyed-out appearance
+		const slider = toggle.nextElementSibling;
+		if (slider && slider.classList.contains('slider')) {
+			if (!enabled) {
+				slider.classList.add('disabled-slider');
+			} else {
+				slider.classList.remove('disabled-slider');
+			}
+		}
+	});
+	
+	// Also grey out the labels
+	featureLabels.forEach(label => {
+		if (!enabled) {
+			label.classList.add('disabled-label');
+		} else {
+			label.classList.remove('disabled-label');
+		}
+	});
+}
+
+// Setup settings toggle handlers
+function setupSettingsToggles() {
+	// Get all setting toggle elements
+	const enabledToggle = document.getElementById('enabled');
+	const autoAcceptToggle = document.getElementById('autoAccept');
+	const smartModeToggle = document.getElementById('smartMode');
+	const preferEssentialToggle = document.getElementById('preferEssential');
+	const preferEssentialPremiumToggle = document.getElementById('preferEssentialPremium');
+	const cloudModeToggle = document.getElementById('cloudMode');
+	
+	// Load initial settings and update UI toggles
+	loadSettings().then(settings => {
+		if (enabledToggle) enabledToggle.checked = settings.enabled;
+		if (autoAcceptToggle) autoAcceptToggle.checked = settings.autoAccept;
+		if (smartModeToggle) smartModeToggle.checked = settings.smartMode;
+		if (preferEssentialToggle) preferEssentialToggle.checked = settings.preferEssential;
+		if (preferEssentialPremiumToggle) preferEssentialPremiumToggle.checked = settings.preferEssential;
+		if (cloudModeToggle) cloudModeToggle.checked = settings.cloudMode;
+		
+		// Apply visual disabled state based on enabled setting
+		updateFeatureTogglesState(settings.enabled);
+	});
+	
+	// Add style for disabled sliders if it doesn't exist
+	if (!document.getElementById('disabled-slider-style')) {
+		const style = document.createElement('style');
+		style.id = 'disabled-slider-style';
+		style.textContent = `
+			.disabled-slider {
+				opacity: 0.5;
+				background-color: #ccc !important;
+			}
+			.disabled-slider:before {
+				background-color: #999 !important;
+			}
+			.disabled-label {
+				opacity: 0.5;
+				color: #777;
+			}
+		`;
+		document.head.appendChild(style);
+	}
+	
+	// Add event listener for enabled toggle
+	if (enabledToggle) {
+		enabledToggle.addEventListener('change', function() {
+			// Save the setting change
+			saveSettings({ enabled: this.checked }, 'enabled')
+			.then(() => {
+				// Update visual appearance of other toggles
+				updateFeatureTogglesState(this.checked);
+				
+				// Show status
+				showStatus(`Extension ${this.checked ? 'enabled' : 'disabled'}`);
+			});
+		});
+	}
+	
+	// ... (existing code for other toggle event listeners) ...
 } 

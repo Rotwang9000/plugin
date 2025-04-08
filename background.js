@@ -489,15 +489,69 @@ registerMessageHandlers({
 		// Ensure button preferences are correct for user type first
 		ensureCorrectButtonPrefs();
 		
+		// Check if enabled status or autoAccept status changed via the flag from popup
+		const changedSetting = message.settings._changedSetting;
+		const isEnabledChange = changedSetting === 'enabled';
+		const isAutoAcceptChange = changedSetting === 'autoAccept';
+		
+		// Remove the temporary flag before broadcasting
+		const settingsToSave = {...message.settings};
+		delete settingsToSave._changedSetting;
+		
+		// Special handling for disabling the extension or auto-accept
+		if ((isEnabledChange && message.settings.enabled === false) || 
+			(isAutoAcceptChange && message.settings.autoAccept === false)) {
+			
+			// Stop any active content scripts immediately
+			chrome.tabs.query({}, (tabs) => {
+				tabs.forEach((tab) => {
+					// Skip internal browser pages
+					if (tab.url && (tab.url.startsWith('chrome:') || 
+									tab.url.startsWith('chrome-extension:') || 
+									tab.url.startsWith('about:'))) {
+						return;
+					}
+					
+					try {
+						// Send an immediate stop message to all content scripts
+						chrome.tabs.sendMessage(tab.id, {
+							action: 'stopDetection',
+							// Include the full settings without the flag
+							settings: settingsToSave,
+							// Specify what changed
+							changedSetting: changedSetting
+						}).catch(() => {
+							// Ignore errors for tabs that don't have our content script loaded
+						});
+					} catch (e) {
+						// Ignore errors for tabs that don't have our content script loaded
+					}
+				});
+			});
+		}
+		
 		// Broadcast settings to all tabs
 		chrome.tabs.query({}, (tabs) => {
 			tabs.forEach((tab) => {
-				chrome.tabs.sendMessage(tab.id, {
-					action: 'settingsUpdated',
-					settings: message.settings
-				}).catch(() => {
+				// Skip internal browser pages
+				if (tab.url && (tab.url.startsWith('chrome:') || 
+								tab.url.startsWith('chrome-extension:') || 
+								tab.url.startsWith('about:'))) {
+					return;
+				}
+				
+				try {
+					chrome.tabs.sendMessage(tab.id, {
+						action: 'settingsUpdated',
+						settings: settingsToSave,
+						// Include what setting changed
+						changedSetting: changedSetting
+					}).catch(() => {
+						// Ignore errors for tabs that don't have our content script loaded
+					});
+				} catch (e) {
 					// Ignore errors for tabs that don't have our content script loaded
-				});
+				}
 			});
 		});
 		updateBadge();
@@ -508,8 +562,17 @@ registerMessageHandlers({
 		return { success: true };
 	},
 	buttonClicked: (message, sender) => {
-		// Record button click information
-		recordButtonClick(message, sender);
+		// Check if extension is enabled before processing
+		chrome.storage.sync.get({ enabled: true }, (result) => {
+			if (!result.enabled) {
+				console.log('Cookie Consent Manager is disabled, ignoring button click');
+				return;
+			}
+			
+			// Record button click information
+			recordButtonClick(message, sender);
+		});
+		
 		return { success: true };
 	},
 	getLastButtonClick: () => {
@@ -539,12 +602,21 @@ registerMessageHandlers({
 			});
 		});
 	},
-	dialogCaptured: (message, sender) => {
-		// Make sure we have a dialog object and not just a count
-		if (message.dialog) {
-			// Store the captured dialog
-			storeDialogInHistory(message.dialog, sender.tab?.id);
-		}
+	cookieDialogDetected: (message, sender) => {
+		// Check if extension is enabled before processing
+		chrome.storage.sync.get({ enabled: true }, (result) => {
+			if (!result.enabled) {
+				console.log('Cookie Consent Manager is disabled, ignoring dialog detection');
+				return;
+			}
+			
+			// Make sure we have a dialog object
+			if (message.dialog) {
+				// Store the captured dialog
+				storeDialogInHistory(message.dialog, sender.tab?.id);
+			}
+		});
+		
 		return { success: true };
 	},
 	getCapturedDialogCount: () => {

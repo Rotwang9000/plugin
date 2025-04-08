@@ -556,3 +556,30 @@ A complete refactoring plan is available in refactoring-plan.md.
    - ⬜ Integration tests for module interactions
 
 3. Verify all functionality works as expected 
+
+## Fixes and Improvements
+
+### Cookie Detection Issues (April 2023)
+We identified and fixed several issues with the cookie detection mechanism:
+
+1. **Ignoring Enabled Setting**: The extension was continuing to detect and close cookie popups even when the extension was disabled in the settings. Fixed by:
+   - Adding explicit checks for `settings.enabled` in the `processCookieElement` function
+   - Adding checks in the `runSmartMode` function to prevent detection when disabled
+   - Adding checks in background message handlers to ignore detection when disabled
+
+2. **Detection Timeout**: The cookie detection was running indefinitely, causing potential performance issues. Fixed by:
+   - Implementing a 10-second timeout (DETECTION_TIMEOUT) after page load
+   - Adding a timer to disconnect MutationObservers after the timeout
+   - Properly cleaning up timers when the extension is disabled
+
+3. **Multiple Popups**: The extension was closing multiple popups on the same domain in a single session, including non-cookie dialogs. Fixed by:
+   - Implementing domain-based tracking with `processedPopupDomains` Set
+   - Only auto-accepting the first popup detected on a domain in a session
+   - Adding special handling for X/Twitter history windows to avoid closing them
+
+4. **Added Tests**: Comprehensive test coverage was added to verify these fixes:
+   - Tests for respecting the enabled setting
+   - Tests for the detection timeout functionality
+   - Tests for preventing multiple popups from being closed on the same domain
+
+This new approach provides more accurate data collection and better insights into cookie consent UI patterns, while making the review process more efficient for users. 

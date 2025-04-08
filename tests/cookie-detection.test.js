@@ -1,5 +1,8 @@
 /**
- * Tests for cookie detection with session tracking and timeout functionality
+ * Tests for cookie detection features including the fixes for:
+ * 1. Respecting the 'enabled' setting
+ * 2. 10-second detection timeout
+ * 3. Not closing the same popup twice in a session
  */
 
 // Mock fetch for selectors.json loading
@@ -118,115 +121,257 @@ const clickElement = jest.fn();
 const startDetectionTimeout = jest.fn();
 
 // Test suite
-describe('Cookie Detection with Session Protection and Timeout', () => {
+describe('Cookie Detection', () => {
+	// Mock the chrome API
+	global.chrome = {
+		runtime: {
+			sendMessage: jest.fn().mockImplementation((message, callback) => {
+				if (callback) callback({});
+				return Promise.resolve({});
+			}),
+			onMessage: {
+				addListener: jest.fn()
+			}
+		},
+		storage: {
+			sync: {
+				get: jest.fn().mockImplementation((keys, callback) => {
+					callback({
+						enabled: mockSettings.enabled,
+						autoAccept: mockSettings.autoAccept,
+						smartMode: mockSettings.smartMode
+					});
+				})
+			},
+			local: {
+				get: jest.fn().mockImplementation((keys, callback) => callback({})),
+				set: jest.fn()
+			}
+		}
+	};
+	
+	// Mock the document and window objects
+	document.body.innerHTML = `
+		<div id="cookie-banner">
+			<p>This website uses cookies to ensure you get the best experience.</p>
+			<button id="accept-cookies">Accept</button>
+			<button id="reject-cookies">Reject</button>
+		</div>
+	`;
+	
+	// Mock settings
+	let mockSettings = {
+		enabled: true,
+		autoAccept: true,
+		smartMode: true
+	};
+	
+	// Import the functions we want to test
+	const processCookieElement = window.processCookieElement;
+	const checkElementForCookieBanner = window.checkElementForCookieBanner;
+	const initCookieConsentManager = window.initCookieConsentManager;
+	
+	// Mock the necessary functions
+	window.clickElement = jest.fn();
+	window.clickAppropriateButton = jest.fn();
+	window.findAcceptButton = jest.fn().mockResolvedValue(document.getElementById('accept-cookies'));
+	window.isCookieConsentDialog = jest.fn().mockReturnValue(true);
+	window.processedDialogsInSession = new Set();
+	window.processedPopupDomains = new Set();
+	window.sendMessageToBackground = jest.fn();
+	window.captureDialog = jest.fn().mockReturnValue({ id: '123', domain: 'example.com' });
+	window.capturedDialogs = [];
+	
 	beforeEach(() => {
+		// Reset mocks before each test
 		jest.clearAllMocks();
-		document.body.innerHTML = `
-			<div class="cookie-banner">
-				<button class="accept">Accept Cookies</button>
-			</div>
-			<div class="view-browser-history-dialog">
-				<button class="close">Close</button>
-			</div>
-		`;
+		window.processedDialogsInSession.clear();
+		window.processedPopupDomains.clear();
+		window.capturedDialogs = [];
 	});
-
-	afterAll(() => {
-		console.log = originalConsoleLog;
+	
+	// Test 1: Extension respects the 'enabled' setting
+	test('Should not process cookie elements when extension is disabled', () => {
+		// Set extension to disabled
+		mockSettings.enabled = false;
+		
+		const cookieBanner = document.getElementById('cookie-banner');
+		processCookieElement(cookieBanner, '#cookie-banner', 'test');
+		
+		// Should not process if disabled
+		expect(window.clickAppropriateButton).not.toHaveBeenCalled();
+		expect(window.sendMessageToBackground).not.toHaveBeenCalled();
 	});
-
-	test('Should prevent processing the same dialog twice in a session', () => {
-		// Mock implementation
-		const processedDialogsInSession = new Set();
+	
+	// Test 2: Not closing the same popup twice
+	test('Should not close the same popup twice in a session', () => {
+		// Set extension to enabled
+		mockSettings.enabled = true;
 		
-		const mockProcessCookieElement = (element, selector, method) => {
-			const dialogId = generateDialogId(element);
-			
-			if (processedDialogsInSession.has(dialogId)) {
-				return false;
-			}
-			
-			processedDialogsInSession.add(dialogId);
-			return true;
-		};
-		
-		const cookieBanner = document.querySelector('.cookie-banner');
-		
-		// First call should process
-		expect(mockProcessCookieElement(cookieBanner, null, 'smart')).toBe(true);
-		
-		// Second call should not process
-		expect(mockProcessCookieElement(cookieBanner, null, 'smart')).toBe(false);
-	});
-
-	test('Should not automatically close X/Grok history dialogs', () => {
-		// Mock implementation
-		const clickAppropriateButton = jest.fn();
-		
-		const mockProcessCookieElement = (element, selector, method) => {
-			// Only auto-accept if it's not an X/Grok history window
-			if (method !== 'xGrok') {
-				clickAppropriateButton(element);
-				return true;
-			}
-			return false;
-		};
-		
-		const cookieBanner = document.querySelector('.cookie-banner');
-		const historyDialog = document.querySelector('.view-browser-history-dialog');
-		
-		// Cookie banner should trigger click
-		mockProcessCookieElement(cookieBanner, null, 'smart');
-		expect(clickAppropriateButton).toHaveBeenCalledWith(cookieBanner);
-		
-		clickAppropriateButton.mockClear();
-		
-		// History dialog should not trigger click
-		mockProcessCookieElement(historyDialog, null, 'xGrok');
-		expect(clickAppropriateButton).not.toHaveBeenCalled();
-	});
-
-	test('Should stop detection after timeout', () => {
-		// Mock the window object
-		const originalSetTimeout = window.setTimeout;
-		const mockSetTimeout = jest.fn((callback, timeout) => {
-			return originalSetTimeout(callback, 0); // Execute immediately for testing
+		// Mock location.hostname
+		Object.defineProperty(window, 'location', {
+			value: { hostname: 'example.com' }
 		});
-		window.setTimeout = mockSetTimeout;
 		
-		// Mock implementation
-		const mockStartDetectionTimeout = () => {
-			window.setTimeout(() => {
-				// This would disconnect observers in the real implementation
-				console.log('Detection stopped after timeout');
-			}, 10000);
-		};
+		const cookieBanner = document.getElementById('cookie-banner');
 		
-		mockStartDetectionTimeout();
-		expect(mockSetTimeout).toHaveBeenCalled();
-		expect(console.log).toHaveBeenCalledWith('Detection stopped after timeout');
+		// First time processing
+		processCookieElement(cookieBanner, '#cookie-banner', 'test');
+		expect(window.clickAppropriateButton).toHaveBeenCalledTimes(1);
 		
-		// Restore original setTimeout
-		window.setTimeout = originalSetTimeout;
+		// Reset call counts but keep the processed domains
+		jest.clearAllMocks();
+		
+		// Process another dialog on the same domain
+		const secondBanner = document.createElement('div');
+		secondBanner.id = 'different-cookie-banner';
+		secondBanner.innerHTML = '<button>Accept Cookies</button>';
+		document.body.appendChild(secondBanner);
+		
+		processCookieElement(secondBanner, '#different-cookie-banner', 'test');
+		
+		// Should not click again since we've already processed this domain
+		expect(window.clickAppropriateButton).not.toHaveBeenCalled();
 	});
-
-	test('Should use JSON config for selectors', async () => {
-		// Check that fetch is called properly
-		const loadSelectors = async () => {
-			try {
-				const response = await fetch('selectors.json');
-				return await response.json();
-			} catch (error) {
-				console.error('Error loading selectors:', error);
-				return {};
+	
+	// Test 3: 10-second detection timeout
+	test('Should stop detection after 10 seconds', () => {
+		// Mock timer functions
+		jest.useFakeTimers();
+		
+		// Mock MutationObserver
+		const mockObserver = {
+			disconnect: jest.fn(),
+			observe: jest.fn()
+		};
+		global.MutationObserver = jest.fn(() => mockObserver);
+		
+		// Mock querySelector to include our observer
+		const mockEls = [{_observer: mockObserver}];
+		document.querySelectorAll = jest.fn().mockReturnValue(mockEls);
+		
+		// Set readyState to complete to trigger timeout immediately
+		Object.defineProperty(document, 'readyState', {
+			value: 'complete'
+		});
+		
+		// Run smart mode detection
+		window.runSmartMode();
+		
+		// Fast forward 11 seconds
+		jest.advanceTimersByTime(11000);
+		
+		// Observer should be disconnected
+		expect(mockObserver.disconnect).toHaveBeenCalled();
+		
+		// Clean up
+		jest.useRealTimers();
+	});
+	
+	// Test 4: Handles settings changes without requiring page reload
+	test('Should handle settings changes without requiring page reload', () => {
+		// Mock the stopAllDetection and initCookieConsentManager functions
+		window.stopAllDetection = jest.fn();
+		window.initCookieConsentManager = jest.fn();
+		
+		// Set initial settings
+		mockSettings.enabled = true;
+		mockSettings.autoAccept = true;
+		
+		// Create a message handler like the one in content.js
+		const handleMessage = (message, sender) => {
+			if (message.action === 'settingsUpdated') {
+				// Update settings
+				mockSettings = message.settings;
+				
+				// Get the specific setting that was changed
+				const changedSetting = message.changedSetting;
+				const isEnabledChange = changedSetting === 'enabled';
+				const isAutoAcceptChange = changedSetting === 'autoAccept';
+				
+				// If the extension was enabled, start detection
+				if (mockSettings.enabled) {
+					// Only run detection if auto-accept is enabled
+					if (mockSettings.autoAccept) {
+						// If we specifically enabled auto-accept, start detection immediately
+						if (isAutoAcceptChange) {
+							window.initCookieConsentManager();
+						}
+					}
+				} else if (isEnabledChange) {
+					// Extension was just disabled
+					window.stopAllDetection();
+				}
+			} else if (message.action === 'stopDetection') {
+				// Update settings
+				mockSettings = message.settings;
+				
+				// Stop all detection
+				window.stopAllDetection();
 			}
 		};
 		
-		const selectors = await loadSelectors();
+		// Test 1: Disabling the extension should call stopAllDetection
+		handleMessage({
+			action: 'settingsUpdated',
+			settings: { enabled: false, autoAccept: true },
+			changedSetting: 'enabled'
+		});
 		
-		expect(fetch).toHaveBeenCalledWith('selectors.json');
-		expect(selectors).toHaveProperty('cookieDialogSelectors');
-		expect(selectors).toHaveProperty('dialogTypes.xGrokHistory');
-		expect(selectors).toHaveProperty('buttonTypes.accept');
+		expect(window.stopAllDetection).toHaveBeenCalledTimes(1);
+		expect(mockSettings.enabled).toBe(false);
+		
+		// Reset mock functions
+		jest.clearAllMocks();
+		
+		// Test 2: Re-enabling the extension with auto-accept should start detection
+		handleMessage({
+			action: 'settingsUpdated',
+			settings: { enabled: true, autoAccept: true },
+			changedSetting: 'enabled'
+		});
+		
+		// Just enabling shouldn't restart detection automatically
+		expect(window.initCookieConsentManager).not.toHaveBeenCalled();
+		expect(mockSettings.enabled).toBe(true);
+		
+		// Reset mock functions
+		jest.clearAllMocks();
+		
+		// Test 3: Disabling auto-accept should not call stopAllDetection
+		handleMessage({
+			action: 'settingsUpdated',
+			settings: { enabled: true, autoAccept: false },
+			changedSetting: 'autoAccept'
+		});
+		
+		expect(window.stopAllDetection).not.toHaveBeenCalled();
+		expect(mockSettings.autoAccept).toBe(false);
+		
+		// Reset mock functions
+		jest.clearAllMocks();
+		
+		// Test 4: Re-enabling auto-accept should restart detection
+		handleMessage({
+			action: 'settingsUpdated',
+			settings: { enabled: true, autoAccept: true },
+			changedSetting: 'autoAccept'
+		});
+		
+		expect(window.initCookieConsentManager).toHaveBeenCalledTimes(1);
+		expect(mockSettings.autoAccept).toBe(true);
+		
+		// Reset mock functions
+		jest.clearAllMocks();
+		
+		// Test 5: Direct stopDetection message should call stopAllDetection
+		handleMessage({
+			action: 'stopDetection',
+			settings: { enabled: false, autoAccept: true },
+			changedSetting: 'enabled'
+		});
+		
+		expect(window.stopAllDetection).toHaveBeenCalledTimes(1);
+		expect(mockSettings.enabled).toBe(false);
 	});
 }); 

@@ -6,6 +6,7 @@
 	"type": "module",
 	"scripts": {
 		"test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config=jest.config.js",
+		"test:finders": "node tests/unit/run-finders.js",
 		"lint": "eslint .",
 		"build": "webpack --mode=production",
 		"build:full": "node build.js",
