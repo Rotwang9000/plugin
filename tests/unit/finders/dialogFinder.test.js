@@ -26,12 +26,17 @@ const mockSelectors = {
 
 describe('DialogFinder', () => {
 	let dialogFinder;
-	let document;
+	let documentObj;
+	let bodyEl;
 	
 	beforeEach(() => {
-		// Create a mock document
-		document = {
-			body: document.createElement('div'),
+		// Create a container for our tests that acts like a document
+		bodyEl = document.createElement('div');
+		document.body.appendChild(bodyEl);
+		
+		// Create a simplified document-like object that delegates to our container
+		documentObj = {
+			body: bodyEl,
 			querySelectorAll: function(selector) {
 				return this.body.querySelectorAll(selector);
 			},
@@ -43,80 +48,86 @@ describe('DialogFinder', () => {
 		dialogFinder = new DialogFinder(mockSelectors);
 	});
 	
+	afterEach(() => {
+		// Clean up
+		document.body.removeChild(bodyEl);
+	});
+	
 	test('findDialog should find dialog by ID', () => {
-		document.body.innerHTML = '<div id="cookieDialog">Cookie Settings</div>';
-		const dialog = dialogFinder.findDialog(document);
+		bodyEl.innerHTML = '<div id="cookieDialog">Cookie Settings</div>';
+		const dialog = dialogFinder.findDialog(documentObj);
 		expect(dialog).not.toBeNull();
 		expect(dialog.id).toBe('cookieDialog');
 	});
 	
 	test('findDialog should find dialog by class', () => {
-		document.body.innerHTML = '<div class="cookie-notice">Cookie Notice</div>';
-		const dialog = dialogFinder.findDialog(document);
+		bodyEl.innerHTML = '<div class="cookie-notice">Cookie Notice</div>';
+		const dialog = dialogFinder.findDialog(documentObj);
 		expect(dialog).not.toBeNull();
 		expect(dialog.className).toBe('cookie-notice');
 	});
 	
 	test('findDialog should find dialog by aria-label', () => {
-		document.body.innerHTML = '<div aria-label="cookie consent">Cookie Consent</div>';
-		const dialog = dialogFinder.findDialog(document);
+		bodyEl.innerHTML = '<div aria-label="cookie consent">Cookie Consent</div>';
+		const dialog = dialogFinder.findDialog(documentObj);
 		expect(dialog).not.toBeNull();
 		expect(dialog.getAttribute('aria-label')).toBe('cookie consent');
 	});
 	
 	test('findDialog should find dialog by text content', () => {
-		document.body.innerHTML = `
+		bodyEl.innerHTML = `
 			<div>
 				<div>Some random content</div>
 				<div id="dialog">Cookie Policy: Please accept our cookies</div>
 			</div>
 		`;
-		const dialog = dialogFinder.findDialog(document);
+		const dialog = dialogFinder.findDialog(documentObj);
+		console.log('Found dialog:', dialog ? dialog.outerHTML : 'null', 'Element ID:', dialog ? dialog.id : 'n/a');
 		expect(dialog).not.toBeNull();
 		expect(dialog.id).toBe('dialog');
 	});
 	
 	test('findDialog should respect exclude selectors', () => {
-		document.body.innerHTML = `
+		bodyEl.innerHTML = `
 			<footer>
 				<div class="cookie-link">Cookie Policy</div>
 			</footer>
 			<div id="actual-dialog" class="cookie-notice">Cookie Notice</div>
 		`;
-		const dialog = dialogFinder.findDialog(document);
+		const dialog = dialogFinder.findDialog(documentObj);
 		expect(dialog).not.toBeNull();
 		expect(dialog.id).toBe('actual-dialog');
 	});
 	
 	test('findDialog should return null if no dialog is found', () => {
-		document.body.innerHTML = `
+		bodyEl.innerHTML = `
 			<div>No cookie-related content here</div>
 		`;
-		const dialog = dialogFinder.findDialog(document);
+		const dialog = dialogFinder.findDialog(documentObj);
 		expect(dialog).toBeNull();
 	});
 	
 	test('findAllPotentialDialogs should find all potential dialogs', () => {
-		document.body.innerHTML = `
+		bodyEl.innerHTML = `
 			<div id="dialog1" class="cookie-notice">Cookie Notice</div>
 			<div id="dialog2" aria-label="cookie settings">Cookie Settings</div>
 			<div id="not-dialog">Some other content</div>
 		`;
-		const dialogs = dialogFinder.findAllPotentialDialogs(document);
+		const dialogs = dialogFinder.findAllPotentialDialogs(documentObj);
 		expect(dialogs.length).toBe(2);
 		expect(dialogs[0].id).toBe('dialog1');
 		expect(dialogs[1].id).toBe('dialog2');
 	});
 	
 	test('findAllPotentialDialogs should respect exclude selectors', () => {
-		document.body.innerHTML = `
+		bodyEl.innerHTML = `
 			<footer>
 				<div id="footer-cookie" class="cookie-link">Cookie Policy</div>
 			</footer>
 			<div id="dialog1" class="cookie-notice">Cookie Notice</div>
 			<div id="dialog2" aria-label="cookie settings">Cookie Settings</div>
 		`;
-		const dialogs = dialogFinder.findAllPotentialDialogs(document);
+		const dialogs = dialogFinder.findAllPotentialDialogs(documentObj);
 		expect(dialogs.length).toBe(2);
 		expect(dialogs.some(d => d.id === 'footer-cookie')).toBe(false);
 	});

@@ -1,15 +1,22 @@
-﻿// Import modules
-import { loadSettings, updateUIFromSettings, updateDevModeUI, toggleDevModeTabs, showTab, initTabNavigation, initSettingsControls } from './src/ui/settings-ui.js';
-import { loadAllDialogs, displayAllDialogs, renderDialogItems, getButtonTypeDisplayText, markDialogReviewed } from './src/ui/history-ui.js';
+﻿
+// Import modules
+import { loadSettings, updateUIFromSettings, updateDevModeUI, toggleDevModeTabs, showTab, initTabNavigat
+ion, initSettingsControls } from './src/ui/settings-ui.js';
+import { loadAllDialogs, displayAllDialogs, renderDialogItems, getButtonTypeDisplayText, markDialogRevie
+wed } from './src/ui/history-ui.js';
 import { displayDetectionStatus, displayDetectedElements } from './src/ui/dialog-display.js';
-import { updateDialogCount, clearBadgeCount, displayStatistics, displayChart } from './src/ui/stats-ui.js';
+import { updateDialogCount, clearBadgeCount, displayStatistics, displayChart } from './src/ui/stats-ui.j
+s';
 import { initTooltips } from './src/ui/tooltip-ui.js';
 import { updateCurrentPageStatus } from './src/ui/page-status-ui.js';
-import { formatHtmlWithLineNumbers, escapeHtml, safeGetHtmlContent, createViewableHtmlDocument } from './src/modules/html-utils.js';
-import { createElement, clearElement, toggleClass, queryAndProcess, addDebouncedEventListener } from './src/modules/dom-utils.js';
+import { formatHtmlWithLineNumbers, escapeHtml, safeGetHtmlContent, createViewableHtmlDocument } from '.
+/src/modules/html-utils.js';
+import { createElement, clearElement, toggleClass, queryAndProcess, addDebouncedEventListener } from './
+src/modules/dom-utils.js';
 import { 
 	getSettings, saveSettings, getDialogHistory, saveDialogToHistory, markDialogAsReviewed,
-	getSettingsAsync, saveSettingsAsync, getDialogHistoryAsync, saveDialogToHistoryAsync, markDialogAsReviewedAsync,
+	getSettingsAsync, saveSettingsAsync, getDialogHistoryAsync, saveDialogToHistoryAsync, markDialogAsRevie
+wedAsync,
 	getDataCollectionConsentAsync, setDataCollectionConsentAsync 
 } from './src/modules/storage.js';
 import { analyzeDialogSource } from './src/detection/smart-detection.js';
@@ -18,18 +25,6 @@ import {
 	sendMessageToBackgroundAsync, sendMessageToActiveTabAsync
 } from './src/api/messaging.js';
 import { submitDialogRating, fetchCloudStatistics, reportDialogToCloud } from './src/api/cloud-api.js';
-
-// REFACTORING NOTES:
-// Several functions have been moved to separate modules:
-// - updateCurrentPageStatus -> src/ui/page-status-ui.js
-// - updatePageStatusUI -> src/ui/page-status-ui.js
-// - handleCookieAction -> src/ui/page-status-ui.js
-// - initTabNavigation -> src/ui/settings-ui.js
-// - showTab -> src/ui/settings-ui.js
-// - handleDetailsTabSwitch -> src/ui/settings-ui.js (private function)
-// - updateDevModeUI -> src/ui/settings-ui.js
-// - displayHistoryDialogs -> src/ui/history-ui.js
-// New wrapper functions have been created for setupDashboardTab, setupAnalyzeTab
 
 // Global variables to track current dialog
 let currentDialog = null;
@@ -61,12 +56,6 @@ document.addEventListener('DOMContentLoaded', () => {
 	
 	// Load button preferences
 	loadButtonPreferences();
-	
-	// Setup dashboard tab (for settings tab functionality)
-	setupDashboardTab();
-	
-	// Setup analyze tab (will only be visible in dev mode)
-	setupAnalyzeTab();
 	
 	// Disable premium features for non-premium users
 	disablePremiumFeatures();
@@ -271,21 +260,237 @@ function updateButtonPreferencesUI(buttonPreferences) {
 	setupButtonPreferences();
 }
 
+	const statusContainer = document.getElementById('currentPageStatus');
+	if (!statusContainer) return;
+	
+	// Clear existing content
+	statusContainer.innerHTML = '';
+	
+	// Create header and content divs
+	const headerDiv = document.createElement('div');
+	headerDiv.className = 'detection-header';
+	headerDiv.textContent = 'Current Page Status';
+	
+	const contentDiv = document.createElement('div');
+	contentDiv.className = 'detection-content';
+	
+	// Add loading message initially
+	contentDiv.innerHTML = '<p>Checking for cookie dialogs on this page...</p>';
+	
+	// Append header and content to container
+	statusContainer.appendChild(headerDiv);
+	statusContainer.appendChild(contentDiv);
+	
+	// Check for dialog history on the current page
+	chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
+		if (!tabs || tabs.length === 0) {
+			contentDiv.innerHTML = '<p>No active tab detected.</p>';
+			return;
+		}
+		
+		const currentTabId = tabs[0].id;
+		const currentUrl = tabs[0].url;
+		const currentDomain = currentUrl ? new URL(currentUrl).hostname : '';
+		
+		chrome.storage.local.get(['dialogHistory'], result => {
+			const history = result.dialogHistory || [];
+			
+			// Find dialogs for this domain
+			const domainDialogs = history.filter(dialog => 
+				dialog.domain && 
+				(dialog.domain === currentDomain || 
+				 currentDomain.includes(dialog.domain) || 
+				 dialog.domain.includes(currentDomain))
+			);
+			
+			if (domainDialogs.length > 0) {
+				// Sort by most recent
+				domainDialogs.sort((a, b) => {
+					return new Date(b.capturedAt) - new Date(a.capturedAt);
+				});
+				
+				// Get most recent dialog
+				const latestDialog = domainDialogs[0];
+				
+				// Format the time
+				const captureDate = new Date(latestDialog.capturedAt);
+				const formattedDate = captureDate.toLocaleString('en-GB', {
+					day: 'numeric',
+					month: 'short',
+					year: 'numeric',
+					hour: '2-digit',
+					minute: '2-digit'
+				});
+				
+				// Determine dialog status and set appropriate styling
+				let statusClass = 'status-info';
+				let statusTitle = 'Cookie Dialog Detected';
+				
+				if (latestDialog.method && latestDialog.method.includes('auto')) {
+					statusClass = 'status-success';
+					statusTitle = 'Cookie Dialog Auto-Handled';
+				} else if (latestDialog.reviewed) {
+					statusClass = 'status-success';
+					statusTitle = 'Cookie Dialog Reviewed';
+				}
+				
+				// Update container styling
+				statusContainer.className = `cookie-detection-status ${statusClass}`;
+				headerDiv.textContent = statusTitle;
+				
+				// Create content for the most recent dialog
+				contentDiv.innerHTML = '';
+				
+				// Show domain and date
+				const infoDiv = document.createElement('div');
+				infoDiv.innerHTML = `
+					<p><strong>${latestDialog.domain}</strong></p>
+					<p class="small text-muted">Detected: ${formattedDate}</p>
+				`;
+				
+				// Add method info if available
+				if (latestDialog.method) {
+					const methodP = document.createElement('p');
+					methodP.className = 'small text-muted';
+					methodP.textContent = `Method: ${latestDialog.method}`;
+					infoDiv.appendChild(methodP);
+				}
+				
+				// Make the entire status container clickable to go to details tab
+				statusContainer.style.cursor = 'pointer';
+				statusContainer.onclick = function() {
+					// Store this dialog as the current dialog
+					window.currentDialog = latestDialog;
+					
+					// Switch to the details tab
+					const detailsTab = document.querySelector('.tab[data-tab="details"]');
+					if (detailsTab) {
+						detailsTab.click();
+					}
+				};
+				
+				// Add a hint that it's clickable
+				const viewDetailsP = document.createElement('p');
+				viewDetailsP.className = 'view-details-hint';
+				viewDetailsP.textContent = 'Click to view details';
+				viewDetailsP.style.textAlign = 'right';
+				viewDetailsP.style.color = '#673AB7';
+				viewDetailsP.style.fontSize = '12px';
+				viewDetailsP.style.marginTop = '10px';
+				viewDetailsP.style.fontStyle = 'italic';
+				
+				contentDiv.appendChild(infoDiv);
+				contentDiv.appendChild(viewDetailsP);
+			} else {
+				// No history found for this domain
+				statusContainer.className = 'cookie-detection-status status-none';
+				headerDiv.textContent = 'No Cookie Dialogs Detected';
+				
+				contentDiv.innerHTML = `
+					<p>No cookie consent dialogs have been detected on ${currentDomain}.</p>
+					<button id="checkCookieBoxes" class="action-button">Scan Page</button>
+				`;
+				
+				// Add event listener to the scan button
+				const scanButton = contentDiv.querySelector('#checkCookieBoxes');
+				if (scanButton) {
+					scanButton.addEventListener('click', function() {
+						// Update the status to scanning
+						contentDiv.innerHTML = '<p>Scanning for cookie dialogs...</p>';
+						
+						// Send message to content script to check for cookie boxes
+						chrome.tabs.sendMessage(currentTabId, { action: 'checkForCookieBoxes' }, response => {
+							if (chrome.runtime.lastError) {
+								console.error('Error sending message:', chrome.runtime.lastError);
+								contentDiv.innerHTML = `
+									<p>Error scanning page: ${chrome.runtime.lastError.message}</p>
+									<button id="checkCookieBoxes" class="action-button">Try Again</button>
+								`;
+								return;
+							}
+							
+							// Update UI with response
+							updateCurrentPageStatus();
+						});
+					});
+				}
+			}
+		});
+	});
+}
+
 // Update the current page status UI based on response
 function updatePageStatusUI(response) {
-	// This function has been moved to src/ui/page-status-ui.js as updatePageStatusUI
-	// Import and use it from there
-	import('./src/ui/page-status-ui.js').then(module => {
-		module.updatePageStatusUI(response);
-	});
+	const statusContainer = document.getElementById('currentPageStatus');
+	if (!statusContainer) return;
+	
+	const contentDiv = statusContainer.querySelector('.detection-content');
+	if (!contentDiv) return;
+	
+	// Clear the container
+	clearElement(contentDiv);
+	
+	// Update class based on detection result
+	if (response && response.dialogFound) {
+		statusContainer.className = 'cookie-detection-status status-success';
+		statusContainer.querySelector('.detection-header').textContent = 'Cookie Dialog Detected';
+		
+		// Create content for dialog found
+		createElement('p', null, 'A cookie consent dialog was detected on this page.', contentDiv);
+		
+		// Add action buttons
+		const actionDiv = createElement('div', { className: 'action-buttons' }, null, contentDiv);
+		
+		// Accept button
+		const acceptButton = createElement('button', { 
+			className: 'action-button',
+			style: 'margin-right: 10px;'
+		}, 'Accept Cookies', actionDiv);
+		
+		// Customize button
+		const customizeButton = createElement('button', { 
+			className: 'action-button'
+		}, 'Customize Settings', actionDiv);
+		
+		// Add event listeners
+		acceptButton.addEventListener('click', () => handleCookieAction('accept'));
+		customizeButton.addEventListener('click', () => handleCookieAction('customize'));
+		
+	} else {
+		statusContainer.className = 'cookie-detection-status status-info';
+		statusContainer.querySelector('.detection-header').textContent = 'No Cookie Dialog Detected';
+		
+		// Create content for no dialog
+		createElement('p', null, 'No cookie consent dialog was detected on this page.', contentDiv);
+		
+		// Add scan button
+		const scanButton = createElement('button', { 
+			id: 'checkCookieBoxes',
+			className: 'action-button'
+		}, 'Scan Again', contentDiv);
+		
+		// Add event listener to scan button
+		scanButton.addEventListener('click', updateCurrentPageStatus);
+	}
 }
 
 // Handle cookie action clicks (accept/customize)
 function handleCookieAction(action) {
-	// This function has been moved to src/ui/page-status-ui.js as handleCookieAction
-	// Import and use it from there
-	import('./src/ui/page-status-ui.js').then(module => {
-		module.handleCookieAction(action);
+	sendMessageToActiveTabAsync({ 
+		action: 'handleCookieAction',
+		cookieAction: action 
+	})
+	.then(response => {
+		if (response && response.success) {
+			alert(`Successfully performed '${action}' action on the cookie dialog.`);
+			updateCurrentPageStatus(); // Check again to update UI
+		} else {
+			alert(`Failed to perform '${action}' action. The dialog may have changed or been removed.`);
+		}
+	})
+	.catch(error => {
+		console.error(`Error performing ${action} action:`, error);
+		alert('An error occurred. Please try again.');
 	});
 }
 
@@ -398,63 +603,26 @@ function updateSubscriptionUI(isPremium) {
 	}
 }
 
-// Setup the dashboard tab with statistics
 function setupDashboardTab() {
-	// This function now uses the settings tab as there is no dashboard tab
-	// Attach event handlers to buttons in the settings tab
+	// Check for cookie consent boxes on the active tab
 	document.getElementById('settings').addEventListener('click', function(event) {
 		if (event.target.id === 'checkCookieBoxes') {
 			updateCurrentPageStatus();
 		}
-		
+	});
+	
+	// Report a cookie box from the active tab
+	document.getElementById('settings').addEventListener('click', function(event) {
 		if (event.target.id === 'reportCookieBox') {
 			reportCookieBox();
 		}
 	});
-	
-	// If there are statistics containers, populate them
-	const statsContainer = document.getElementById('statistics-container');
-	if (statsContainer) {
-		displayStatistics(statsContainer);
-	}
-	
-	// If there's a chart container, fetch data and display chart
-	const chartContainer = document.getElementById('chart-container');
-	if (chartContainer) {
-		fetchCloudStatistics(stats => {
-			const chartData = {
-				'Cloud': stats.cloudMatches || 0,
-				'Smart': stats.smartMatches || 0,
-				'Manual': stats.manualMatches || 0
-			};
-			displayChart(chartContainer, chartData);
-		});
-	}
 }
 
-// Setup the analyze tab functionality
 function setupAnalyzeTab() {
-	// Using both form submission and button click approaches for compatibility
-	const analyzeForm = document.getElementById('analyze-form');
-	if (analyzeForm) {
-		analyzeForm.addEventListener('submit', (e) => {
-			e.preventDefault();
-			const sourceInput = document.getElementById('source-input');
-			const html = sourceInput.value.trim();
-			
-			if (html) {
-				// Analyze the HTML using our detection module
-				const result = analyzeDialogSource(html);
-				displayAnalysisResults(result);
-			}
-		});
-	}
-	
-	// Also support direct button click (for older UI)
-	const analyzeBtn = document.getElementById('analyzeBtn');
-	const sourceInput = document.getElementById('sourceInput');
-	if (analyzeBtn && sourceInput) {
-		analyzeBtn.addEventListener('click', function() {
+	document.getElementById('analyze').addEventListener('click', function(event) {
+		if (event.target.id === 'analyzeBtn') {
+			const sourceInput = document.getElementById('sourceInput');
 			const htmlSource = sourceInput.value.trim();
 			
 			if (htmlSource) {
@@ -463,60 +631,28 @@ function setupAnalyzeTab() {
 				
 				// Show results
 				const resultsContainer = document.getElementById('analysisResults');
-				if (resultsContainer) {
-					resultsContainer.style.display = 'block';
-				}
+				resultsContainer.style.display = 'block';
 			}
-		});
-	}
+		}
+	});
 }
 
-// Display history dialogs - wrapper function for compatibility
 function displayHistoryDialogs(dialogs) {
-	console.log(`popup.js: displayHistoryDialogs called with ${dialogs?.length || 0} dialogs`);
+	const historyList = document.getElementById('historyList');
+	clearElement(historyList);
 	
-	// This is the main implementation - we'll try to use the imported version first
-	try {
-		import('./src/ui/history-ui.js').then(module => {
-			console.log(`popup.js: Calling history-ui.js displayHistoryDialogs with ${dialogs?.length || 0} dialogs`);
-			module.displayHistoryDialogs(dialogs);
-		}).catch(error => {
-			console.error('Error importing history-ui.js:', error);
-			// If import fails, fall back to basic implementation
-			fallbackDisplayHistoryDialogs(dialogs);
-		});
-	} catch (error) {
-		console.error('Error in import attempt:', error);
-		// Fallback to basic implementation if dynamic import not supported
-		fallbackDisplayHistoryDialogs(dialogs);
+	if (dialogs.length === 0) {
+		historyList.innerHTML = '<div class="no-dialogs">No cookie dialogs have been captured yet.</div>';
+		return;
 	}
 	
-	// Basic fallback implementation
-	function fallbackDisplayHistoryDialogs(dialogs) {
-		console.log(`popup.js: Using fallback display with ${dialogs?.length || 0} dialogs`);
-		const historyList = document.getElementById('historyList');
-		if (!historyList) {
-			console.error('History list container not found!');
-			return;
-		}
-		
-		clearElement(historyList);
-		
-		if (!dialogs || dialogs.length === 0) {
-			historyList.innerHTML = '<div class="no-dialogs">No cookie dialogs have been captured yet.</div>';
-			return;
-		}
-		
-		// Sort dialogs by date, newest first
-		dialogs.sort((a, b) => {
-			return new Date(b.capturedAt || 0) - new Date(a.capturedAt || 0);
-		});
-		
-		console.log(`popup.js: About to render ${dialogs.length} dialog items`);
-		
-		// Render dialog items
-		renderDialogItems(dialogs, historyList);
-	}
+	// Sort dialogs by date, newest first
+	dialogs.sort((a, b) => {
+		return new Date(b.capturedAt) - new Date(a.capturedAt);
+	});
+	
+	// Render dialog items
+	renderDialogItems(dialogs, historyList);
 }
 
 function checkDataCollectionConsent() {
@@ -545,7 +681,9 @@ function toggleDataCollectionConsent() {
 			
 			// If enabling consent, show the confirmation dialog
 			if (newConsentValue) {
-				if (confirm('By enabling data collection, you agree to share anonymized information about cookie consent dialogs to help improve detection. No personal information will be collected. Do you want to proceed?')) {
+				if (confirm('By enabling data collection, you agree to share anonymized information about cookie con
+sent dialogs to help improve detection. No personal information will be collected. Do you want to procee
+d?')) {
 					updateConsentValue(newConsentValue);
 				}
 			} else {
@@ -573,14 +711,17 @@ function updateStatus(settings) {
 	
 	if (settings.enabled) {
 		if (settings.autoAccept) {
-			statusDiv.textContent = 'Cookie Consent Manager is active and will automatically handle cookie dialogs for you.';
+			statusDiv.textContent = 'Cookie Consent Manager is active and will automatically handle cookie dialog
+s for you.';
 			statusDiv.style.backgroundColor = '#e8f5e9';  // Light green
 		} else {
-			statusDiv.textContent = 'Cookie Consent Manager is active but will not automatically accept cookies. It will still detect cookie dialogs.';
+			statusDiv.textContent = 'Cookie Consent Manager is active but will not automatically accept cookies. 
+It will still detect cookie dialogs.';
 			statusDiv.style.backgroundColor = '#fff8e1';  // Light yellow
 		}
 	} else {
-		statusDiv.textContent = 'Cookie Consent Manager is currently disabled. Enable the extension to start detecting and managing cookie dialogs.';
+		statusDiv.textContent = 'Cookie Consent Manager is currently disabled. Enable the extension to start d
+etecting and managing cookie dialogs.';
 		statusDiv.style.backgroundColor = '#ffebee';  // Light red
 	}
 	
@@ -595,7 +736,8 @@ function checkForCookieBoxes() {
 	const statusContainer = document.getElementById('cookieDetectionStatus');
 	if (statusContainer) {
 		clearElement(statusContainer);
-		const statusDiv = createElement('div', { className: 'cookie-detection-status status-loading' }, null, statusContainer);
+		const statusDiv = createElement('div', { className: 'cookie-detection-status status-loading' }, null, 
+statusContainer);
 		const headerDiv = createElement('div', { className: 'detection-header' }, null, statusDiv);
 		createElement('span', null, 'Checking for Cookie Dialogs...', headerDiv);
 		const contentDiv = createElement('div', { className: 'detection-content' }, null, statusDiv);
@@ -639,9 +781,11 @@ function reportCookieBox() {
 	sendMessageToActiveTabAsync({ action: 'reportCookieBox' })
 		.then(response => {
 			if (response.success) {
-				alert('Thank you for reporting this cookie dialog. Your submission helps improve detection for everyone.');
+				alert('Thank you for reporting this cookie dialog. Your submission helps improve detection for every
+one.');
 			} else {
-				alert('No cookie dialog was found on this page. Try navigating to a page with a cookie consent dialog first.');
+				alert('No cookie dialog was found on this page. Try navigating to a page with a cookie consent dialo
+g first.');
 			}
 		})
 		.catch(error => {
@@ -656,11 +800,15 @@ function reportCookieBox() {
  */
 function displayAnalysisResults(result) {
 	// Update result fields
-	document.getElementById('detectionResult').textContent = result.isDialog ? 'Likely a cookie dialog' : 'Not likely a cookie dialog';
-	document.getElementById('cookieTermsResult').textContent = result.cookieTerms ? result.cookieTerms.join(', ') : 'None found';
+	document.getElementById('detectionResult').textContent = result.isDialog ? 'Likely a cookie dialog' : '
+Not likely a cookie dialog';
+	document.getElementById('cookieTermsResult').textContent = result.cookieTerms ? result.cookieTerms.join
+(', ') : 'None found';
 	document.getElementById('buttonsResult').textContent = result.buttons ? result.buttons.length : '0';
-	document.getElementById('acceptButtonResult').textContent = result.acceptButton ? 'Found' : 'Not found';
-	document.getElementById('necessaryButtonResult').textContent = result.necessaryButton ? 'Found' : 'Not found';
+	document.getElementById('acceptButtonResult').textContent = result.acceptButton ? 'Found' : 'Not found'
+;
+	document.getElementById('necessaryButtonResult').textContent = result.necessaryButton ? 'Found' : 'Not 
+found';
 	
 	// Update recommendations
 	const recommendationsList = document.getElementById('recommendationsList');
@@ -671,11 +819,13 @@ function displayAnalysisResults(result) {
 		if (result.acceptButton) {
 			createElement('li', null, 'Accept button detected.', recommendationsList);
 		} else {
-			createElement('li', null, 'No accept button detected, may require more complex interaction.', recommendationsList);
+			createElement('li', null, 'No accept button detected, may require more complex interaction.', recomme
+ndationsList);
 		}
 	} else {
 		createElement('li', null, 'This does not appear to be a cookie consent dialog.', recommendationsList);
-		createElement('li', null, 'Check if the HTML is complete and contains cookie-related terms.', recommendationsList);
+		createElement('li', null, 'Check if the HTML is complete and contains cookie-related terms.', recommen
+dationsList);
 	}
 }
 
@@ -750,7 +900,8 @@ function displayDetectedDialog(response, container) {
 	
 	// Add details if available
 	if (response.buttonClicked) {
-		createElement('p', { className: 'small text-muted' }, `Button clicked: ${response.buttonClicked}`, contentDiv);
+		createElement('p', { className: 'small text-muted' }, `Button clicked: ${response.buttonClicked}`, con
+tentDiv);
 	}
 	
 	// Add a scan again button
@@ -775,7 +926,8 @@ function displayHistoryDialog(dialog, container) {
 	
 	// Create content
 	const contentDiv = createElement('div', { className: 'detection-content' }, null, statusDiv);
-	createElement('p', null, 'A cookie consent dialog was previously detected on this domain.', contentDiv);
+	createElement('p', null, 'A cookie consent dialog was previously detected on this domain.', contentDiv)
+;
 	
 	// Add captured date
 	const captureDate = new Date(dialog.capturedAt).toLocaleString('en-GB');
@@ -871,45 +1023,30 @@ function switchToTab(tabName) {
 	if (selectedContent) selectedContent.classList.add('active');
 }
 
-// Add event listener for the history tab filter
-document.addEventListener('DOMContentLoaded', function() {
-	const historyFilter = document.getElementById('historyFilter');
-	
-	// Initial load of dialogs - load dialogs as soon as the popup is opened
-	// This ensures dialogs are loaded even when the review tab is not initially selected
-	if (historyFilter) {
-		console.log("Initiating first load of dialog history");
-		loadAllDialogs('all', displayHistoryDialogs);
-	}
-	
-	// Ensure dialogs reload when history tab is shown via custom event
-	document.addEventListener('history-tab-shown', () => {
-		console.log("History tab shown event triggered");
-		const filterValue = historyFilter?.value || 'all';
-		loadAllDialogs(filterValue, displayHistoryDialogs);
+// History filter change
+if (historyFilter) {
+	historyFilter.addEventListener('change', () => {
+		// Import loadAllDialogs from history-ui.js
+		import('./src/ui/history-ui.js').then(module => {
+			// Call loadAllDialogs with the selected filter
+			module.loadAllDialogs(historyFilter.value).then(dialogs => {
+				// Display the filtered dialogs
+				module.displayAllDialogs(dialogs);
+			}).catch(error => {
+				console.error('Error loading filtered dialogs:', error);
+				// Show error message
+				const historyList = document.getElementById('historyList');
+				if (historyList) {
+					historyList.innerHTML = '<div class="no-dialogs">Error loading dialogs. Please try again.</div>';
+				}
+			});
+		}).catch(error => {
+			console.error('Error importing history-ui.js module:', error);
+			// Fallback to old method or show error
+			loadAllDialogs(historyFilter.value);
+		});
 	});
-	
-	// Support direct tab switching
-	const reviewTab = document.querySelector('.tab[data-tab="review"]');
-	if (reviewTab) {
-		reviewTab.addEventListener('click', () => {
-			console.log("Review tab clicked");
-			// Use a short timeout to ensure the tab content is fully shown first
-			setTimeout(() => {
-				const filterValue = historyFilter?.value || 'all';
-				loadAllDialogs(filterValue, displayHistoryDialogs);
-			}, 100);
-		});
-	}
-	
-	// Handle filter change
-	if (historyFilter) {
-		historyFilter.addEventListener('change', () => {
-			console.log("Filter changed to:", historyFilter.value);
-			loadAllDialogs(historyFilter.value, displayHistoryDialogs);
-		});
-	}
-});
+} 
 
 // Add event listener for dialog details loaded event
 document.addEventListener('dialogDetailsLoaded', (event) => {
@@ -1121,13 +1258,105 @@ document.addEventListener('DOMContentLoaded', () => {
 	initTabNavigation();
 });
 
-// Handle details tab special behavior
-function handleDetailsTabSwitch() {
-	// This function has been moved to src/ui/settings-ui.js
-	// It is a private function there but can be triggered via showTab('details')
-	import('./src/ui/settings-ui.js').then(module => {
-		module.showTab('details');
+// Initialize tab navigation with proper click listeners
+function initTabNavigation() {
+	console.log('Initializing tabs');
+	const tabs = document.querySelectorAll('.tab');
+	const tabContents = document.querySelectorAll('.tab-content');
+	
+	// Add click event listeners to all tabs
+	tabs.forEach(tab => {
+		tab.addEventListener('click', function() {
+			console.log('Tab clicked:', this.getAttribute('data-tab'));
+			
+			// Get the tab name from the data-tab attribute
+			const tabName = this.getAttribute('data-tab');
+			
+			// First remove active class from all tabs and content
+			tabs.forEach(t => t.classList.remove('active'));
+			tabContents.forEach(tc => tc.classList.remove('active'));
+			
+			// Add active class to the clicked tab
+			this.classList.add('active');
+			
+			// Add active class to the corresponding tab content
+			const tabContent = document.getElementById(`${tabName}-tab`);
+			if (tabContent) {
+				tabContent.classList.add('active');
+				
+				// Special handling for review tab - load dialogs
+				if (tabName === 'review') {
+					loadAllDialogs();
+				}
+				
+				// Special handling for details tab - check if dialog is selected
+				if (tabName === 'details') {
+					handleDetailsTabSwitch();
+				}
+			} else {
+				console.error(`Tab content not found: ${tabName}-tab`);
+			}
+		});
 	});
 }
 
-// Function updateDevModeUI_old has been moved to src/ui/settings-ui.js
+// Handle details tab special behavior
+function handleDetailsTabSwitch() {
+	const dialogDetailContainer = document.getElementById('dialogDetailContainer');
+	const noSelectionMessage = document.getElementById('noSelectionMessage');
+	
+	if (!currentDialog) {
+		// No dialog selected
+		if (dialogDetailContainer) dialogDetailContainer.style.display = 'none';
+		if (noSelectionMessage) noSelectionMessage.style.display = 'block';
+	} else {
+		// Dialog selected
+		if (dialogDetailContainer) dialogDetailContainer.style.display = 'block';
+		if (noSelectionMessage) noSelectionMessage.style.display = 'none';
+		
+		// Refresh the displayed dialog
+		displayDetectedElements(currentDialog);
+	}
+}
+
+// Update Dev Mode UI elements
+	// Get the current dev mode setting
+	const devModeEnabled = settings.devMode === true;
+	
+	console.log(`Updating UI for dev mode: ${devModeEnabled ? 'enabled' : 'disabled'}`);
+	
+	// Hide or show the analyze tab based on dev mode setting
+	const analyzeTab = document.querySelector('.tab[data-tab="analyze"]');
+	if (analyzeTab) {
+		console.log('Setting Analyze tab display to:', devModeEnabled ? 'block' : 'none');
+		analyzeTab.style.display = devModeEnabled ? 'block' : 'none';
+	} else {
+		console.error('Could not find analyze tab element');
+	}
+	
+	// If currently on the analyze tab but dev mode is disabled, switch to settings
+	if (!devModeEnabled) {
+		const activeTab = document.querySelector('.tab.active');
+		if (activeTab && activeTab.getAttribute('data-tab') === 'analyze') {
+			// Switch to settings tab
+			const settingsTab = document.querySelector('.tab[data-tab="settings"]');
+			if (settingsTab) {
+				settingsTab.click();
+			}
+		}
+	}
+	
+	// Show or hide dev-specific UI elements
+	document.querySelectorAll('.dev-mode-only').forEach(element => {
+		element.style.display = devModeEnabled ? 'block' : 'none';
+	});
+	
+	// Add or remove body class for simpler UI in non-dev mode
+	if (devModeEnabled) {
+		document.body.classList.remove('simple-mode');
+	} else {
+		document.body.classList.add('simple-mode');
+	}
+} 
+
+

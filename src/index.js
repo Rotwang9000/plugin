@@ -3,7 +3,7 @@ import { settings, loadSettings, openedByExtension, dataCollectionConsent } from
 import { runCloudMode, capturedDialogs } from './modules/cloudDatabase.js';
 import { runSmartMode, analyzeBoxSource } from './handlers/smartFormula.js';
 import { sanitizePrivateData, sanitizeUrl } from './utils/privacy.js';
-import { findAcceptButton, findNecessaryCookiesButton } from './utils/buttonFinders.js';
+import { getSyncFinders } from './utils/finders/index.js';
 import { clickElement } from './utils/elementInteraction.js';
 
 console.log("Content script loaded successfully!");
@@ -194,16 +194,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 			const cookieAction = message.cookieAction;
 			let success = false;
 			
+			// Get the finder instances
+			const { buttonFinder } = getSyncFinders();
+			
 			if (cookieAction === 'accept') {
-				// Try to find and click the accept button
-				const acceptButton = findAcceptButton();
+				// Try to find and click the accept button using new finder class
+				const acceptButton = buttonFinder.findAcceptButton(document.documentElement);
 				if (acceptButton) {
 					clickElement(acceptButton);
 					success = true;
 				}
 			} else if (cookieAction === 'customize') {
-				// Try to find and click the necessary cookies button
-				const necessaryButton = findNecessaryCookiesButton();
+				// Try to find and click the reject/necessary cookies button using new finder class
+				const necessaryButton = buttonFinder.findRejectButton(document.documentElement);
 				if (necessaryButton) {
 					clickElement(necessaryButton);
 					success = true;

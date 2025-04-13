@@ -2,55 +2,109 @@
 
 Thank you for considering contributing to the Cookie Consent Manager extension! Here's how you can help improve this project.
 
-## Adding Selectors to the Cloud Database
+## Adding Selectors to selectors.json
 
-The cloud database contains CSS selectors for known cookie consent banners. To add a new selector:
+The extension uses a comprehensive `selectors.json` file for cookie consent detection. To add new selectors:
 
-1. Open the `content.js` file
-2. Locate the `cloudDatabase` object, which contains both site-specific and common selectors
-3. Add a new selector following the appropriate format:
+1. Open the `selectors.json` file
+2. Add your selector to the appropriate section:
 
-For site-specific selectors:
-```javascript
-'example.com': [
-  { selector: '#your-selector', type: 'button', rating: 4.5 }
+### Dialog Selectors
+Add selectors that identify cookie dialog containers:
+
+```json
+"dialogSelectors": [
+  {
+    "query": "#your-cookie-banner",
+    "priority": 10,
+    "description": "Description of your selector"
+  }
 ]
 ```
 
-For common selectors:
-```javascript
-{ 
-  selector: '.common-selector', 
-  type: 'button', 
-  rating: 4.2
-}
-```
+### Button Selectors
+Add selectors for specific button types (accept, reject, customize):
 
-For pattern-based selectors:
-```javascript
-{ 
-  selector: '.pattern-selector', 
-  type: 'button', 
-  patternId: 'unique-pattern-id', 
-  rating: 4.8,
-  signature: {
-    classPatterns: ['pattern-', 'consent'],
-    structure: 'div > div > button.pattern-selector'
+```json
+"buttonTypes": {
+  "accept": {
+    "selectors": [
+      {
+        "query": "#your-accept-button",
+        "priority": 10,
+        "description": "Custom accept button"
+      }
+    ]
   }
 }
 ```
 
-**Tips for creating effective selectors:**
+### Priority System
+Selectors use a priority system (1-10) to determine which selectors to try first:
+- 10: Exact ID match or highly specific selector (highest confidence)
+- 7-9: Class-based or attribute-based selectors (good confidence)
+- 4-6: Pattern-based selectors (medium confidence)
+- 1-3: Generic or fallback selectors (low confidence)
 
-- Use browser developer tools to identify the most specific selector for the accept button
-- Try to use IDs (#element-id) when available as they're more stable
-- For class-based selectors, use the most specific class that uniquely identifies the element
-- Test your selector on multiple pages of the same site to ensure consistency
-- For pattern-based detection, identify common class naming patterns or structures
+### Text Patterns
+For buttons identified by text content:
+
+```json
+"textPatterns": [
+  {
+    "pattern": "accept all cookies",
+    "priority": 10,
+    "description": "Accept all cookies text"
+  }
+]
+```
+
+### Exclude Patterns
+To avoid false positives, add exclusion patterns:
+
+```json
+"excludePatterns": [
+  "settings",
+  "preferences",
+  "more info"
+]
+```
+
+## Extending the Finder System
+
+The extension uses a modular finder system in `src/utils/finders/`:
+
+1. **ElementFinder**: Base class for finding elements
+2. **ButtonFinder**: For finding cookie consent buttons
+3. **CheckboxFinder**: For finding cookie preference checkboxes
+4. **DialogFinder**: For finding cookie consent dialogs
+
+To extend the system:
+
+1. Create a new class extending the appropriate base class
+2. Add methods for your specific element finding needs
+3. Use existing patterns for consistency
+4. Update `index.js` to export your new class
+
+Example:
+
+```javascript
+import { ElementFinder } from './elementFinder.js';
+
+export class YourCustomFinder extends ElementFinder {
+  constructor(selectors) {
+    super(selectors);
+  }
+  
+  findYourElement(container) {
+    // Your implementation here
+  }
+}
+```
 
 ## Using the Dialog Capture System
 
-The dialog capture system allows users to contribute to the cloud database without editing code:
+The dialog capture system allows users to contribute to the selector database without editing code:
 
 1. Enable the extension while browsing
 2. When cookie dialogs are detected and handled, they are stored for review
@@ -123,5 +177,6 @@ Follow these testing best practices:
 - Follow existing code patterns
 - Keep functions small and focused on a single task
 - Add comments for complex logic
+- No special cases hardcoded - use the selectors.json configuration system
 
 Thank you for helping improve the Cookie Consent Manager! 

@@ -5,6 +5,8 @@
  * 3. Not closing the same popup twice in a session
  */
 
+import { jest, describe, beforeEach, afterEach, test, expect } from '@jest/globals';
+
 // Mock fetch for selectors.json loading
 global.fetch = jest.fn(() =>
 	Promise.resolve({

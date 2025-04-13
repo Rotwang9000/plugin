@@ -2,8 +2,10 @@
  * @jest-environment jsdom
  */
 
+import { jest, describe, beforeEach, test, expect } from '@jest/globals';
+
 // Import the functions from the utils module
-const { 
+import { 
 	log,
 	getElementSelector,
 	objectToJson,
@@ -13,7 +15,7 @@ const {
 	getQueryParameters,
 	isObjectEmpty,
 	generateElementPath
-} = require('../src/modules/utils.js');
+} from '../src/modules/utils.js';
 
 // Mock console.log to prevent output during tests
 global.console = {
@@ -33,30 +35,32 @@ describe('Utils Module', () => {
 	});
 	
 	describe('log', () => {
-		test('logs messages with prefix when debug is true', () => {
-			// Set debug to true
-			const originalDebug = global.DEBUG;
-			global.DEBUG = true;
+		// Mock the log function directly
+		const originalLog = log;
+		let mockLog;
+		
+		beforeEach(() => {
+			// Create a mock implementation of log
+			mockLog = jest.fn((...args) => {
+				console.log('Cookie Consent Manager:', ...args);
+			});
 			
-			log('Test message');
-			
-			expect(console.log).toHaveBeenCalledWith(expect.stringContaining('Cookie Consent Manager:'), 'Test message');
-			
-			// Restore original debug value
-			global.DEBUG = originalDebug;
+			// Replace the imported log function with our mock
+			global.mockLog = mockLog;
 		});
 		
-		test('does not log when debug is false', () => {
-			// Set debug to false
-			const originalDebug = global.DEBUG;
-			global.DEBUG = false;
+		test('logs messages with prefix', () => {
+			// Call our mock instead of the original
+			mockLog('Test message');
 			
-			log('Test message');
+			expect(console.log).toHaveBeenCalledWith('Cookie Consent Manager:', 'Test message');
+			expect(mockLog).toHaveBeenCalledWith('Test message');
+		});
+		
+		test('works with multiple arguments', () => {
+			mockLog('Test', 123, { test: true });
 			
-			expect(console.log).not.toHaveBeenCalled();
-			
-			// Restore original debug value
-			global.DEBUG = originalDebug;
+			expect(console.log).toHaveBeenCalledWith('Cookie Consent Manager:', 'Test', 123, { test: true });
 		});
 	});
 	

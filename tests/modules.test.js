@@ -7,7 +7,7 @@ import { jest, describe, beforeEach, test, expect } from '@jest/globals';
 // Import the modules directly
 import { createElement, clearElement, toggleClass, queryAndProcess } from '../src/modules/dom-utils.js';
 import { formatHtmlWithLineNumbers, escapeHtml, safeGetHtmlContent } from '../src/modules/html-utils.js';
-import { findAcceptButton, findRejectButton } from '../src/detection/button-recognition.js';
+import { ButtonFinder, getSyncFinders } from '../src/utils/finders/index.js';
 import { isCookieConsentDialog, analyzeDialogSource } from '../src/detection/smart-detection.js';
 // Import storage conditionally in the test
 import * as storageModule from '../src/modules/storage.js';
@@ -137,6 +137,8 @@ describe('Storage Module', () => {
 
 // Button Recognition Tests
 describe('Button Recognition', () => {
+	let buttonFinder;
+	
 	beforeEach(() => {
 		document.body.innerHTML = `
 			<div id="dialog">
@@ -145,11 +147,15 @@ describe('Button Recognition', () => {
 				<a href="#" class="settings">Customize</a>
 			</div>
 		`;
+		
+		// Get sync finders to use in tests
+		const finders = getSyncFinders();
+		buttonFinder = finders.buttonFinder;
 	});
 	
 	test('findAcceptButton should find accept buttons', () => {
 		const dialog = document.getElementById('dialog');
-		const button = findAcceptButton(dialog);
+		const button = buttonFinder.findAcceptButton(dialog);
 		
 		expect(button).not.toBeNull();
 		expect(button.id).toBe('acceptBtn');
@@ -157,15 +163,15 @@ describe('Button Recognition', () => {
 	
 	test('findRejectButton should find reject buttons', () => {
 		const dialog = document.getElementById('dialog');
-		const button = findRejectButton(dialog);
+		const button = buttonFinder.findRejectButton(dialog);
 		
 		expect(button).not.toBeNull();
 		expect(button.id).toBe('rejectBtn');
 	});
 	
 	test('functions should return null for null input', () => {
-		expect(findAcceptButton(null)).toBeNull();
-		expect(findRejectButton(null)).toBeNull();
+		expect(buttonFinder.findAcceptButton(null)).toBeNull();
+		expect(buttonFinder.findRejectButton(null)).toBeNull();
 	});
 });
 

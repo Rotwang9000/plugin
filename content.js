@@ -1,7 +1,6 @@
 // Import modules
-import { findAcceptButton, findRejectButton, findNecessaryCookiesButton, findSettingsButton, findAcceptButtonSync } from './src/detection/button-recognition.js';
+import { createFinders, getSyncFinders } from './src/utils/finders/index.js';
 import { isCookieConsentDialog, findCookieConsentDialogs, analyzeDialogSource, extractDialogElements } from './src/detection/smart-detection.js';
-import { matchDialogWithCloudPatterns, detectWithCloudPatterns, findButtonInDialog } from './src/detection/cloud-detection.js';
 import { formatHtmlWithLineNumbers, escapeHtml, safeGetHtmlContent, createViewableHtmlDocument } from './src/modules/html-utils.js';
 import { createElement, clearElement, toggleClass, queryAndProcess, addDebouncedEventListener } from './src/modules/dom-utils.js';
 import { getSettings, saveSettings, saveDialogToHistory, dataCollectionConsent } from './src/modules/storage.js';
@@ -372,42 +371,70 @@ function initCookieConsentManager() {
 function runCloudMode() {
 	if (!settings.cloudMode) return;
 	
-	// Get the current domain
-	const domain = window.location.hostname;
+	console.log('Running cloud-based detection mode...');
 	
-	// Detect region
-	const region = detectRegion(domain);
-	
-	// Look for cloud database patterns
-	const domainPatterns = findSimilarPatterns(region);
-	
-	// Check selectors from cloud database
-	domainPatterns.forEach(pattern => {
-		try {
-			// Try to find elements matching this pattern
-			if (pattern.selector) {
-				const elements = document.querySelectorAll(pattern.selector);
-				if (elements.length > 0) {
-					// Process the first matching element
-					const element = elements[0];
+	// Get the dialog finder instance
+	createFinders().then(finders => {
+		const { dialogFinder } = finders;
+		
+		// Find any cookie consent dialogs
+		const dialogs = dialogFinder.findDialogs(document.documentElement);
+		
+		if (dialogs && dialogs.length > 0) {
+			console.log(`Found ${dialogs.length} cookie consent dialogs using DialogFinder`);
+			
+			// Process each dialog
+			dialogs.forEach(dialog => {
+				// Verify it's a cookie dialog
+				if (isCookieConsentDialog(dialog)) {
+					// Process the dialog
+					processCookieElement(dialog, 'dialog-finder', 'cloud-detection');
 					
-					// Verify it's a cookie dialog
-					if (isCookieConsentDialog(element)) {
-						// Process the dialog
-						processCookieElement(element, pattern.selector, 'cloud');
-						
-						// If auto-accept is enabled, click appropriate button based on preferences
-						if (settings.autoAccept) {
-							clickAppropriateButton(element);
-						}
+					// If auto-accept is enabled, click appropriate button based on preferences
+					if (settings.autoAccept) {
+						clickAppropriateButton(dialog);
 					}
 				}
-			}
-		} catch (e) {
-			// Ignore errors for individual patterns
-			console.error('Error processing pattern', e);
+			});
+		} else {
+			console.log('No cookie consent dialogs found using DialogFinder');
 		}
+	}).catch(err => {
+		console.error('Error using DialogFinder:', err);
 	});
+	
+	// Also set up an observer to catch dialogs that appear later
+	const observer = new MutationObserver(mutations => {
+		// Skip if extension is disabled
+		if (!settings.enabled) return;
+		
+		// Only check for new dialogs periodically to avoid performance issues
+		// Use debouncing to avoid excessive processing
+		clearTimeout(observer.timeout);
+		observer.timeout = setTimeout(() => {
+			getSyncFinders().dialogFinder.findDialogs(document.documentElement).forEach(dialog => {
+				// Don't process dialogs we've already seen
+				if (isCookieConsentDialog(dialog) && 
+					!processedDialogsInSession.has(generateDialogId(dialog))) {
+					processCookieElement(dialog, 'dialog-finder-observer', 'cloud-detection-observer');
+					
+					// If auto-accept is enabled, click appropriate button based on preferences
+					if (settings.autoAccept) {
+						clickAppropriateButton(dialog);
+					}
+				}
+			});
+		}, 500);
+	});
+	
+	// Start observing
+	observer.observe(document.body, {
+		childList: true,
+		subtree: true
+	});
+	
+	// Store the observer so we can disconnect it later if needed
+	allObservers.push(observer);
 }
 
 /**
@@ -535,7 +562,7 @@ function checkExistingElements() {
 		}
 	}
 	
-	// If we have loaded selectors, use those
+	// If we have loaded selectors, use those but FILTER OUT any data-attribute selectors
 	let bannerSelectors = selectors.cookieDialogSelectors || [
 		'div[class*="cookie"]',
 		'div[id*="cookie"]',
@@ -547,24 +574,21 @@ function checkExistingElements() {
 		'div[id*="privacy"]'
 	];
 	
-	// AVOID data-* selectors that aren't specifically for cookie consent
-	// Filter out any inadvertently added data attribute selectors
-	bannerSelectors = bannerSelectors.filter(selector => {
-		// Keep all non-data-attribute selectors
-		if (!selector.includes('data-')) return true;
-		
-		// Only keep data attribute selectors that are specifically for cookies
-		return selector.includes('data-cookie') || 
-			selector.includes('data-consent') || 
-			selector.includes('data-gdpr');
-	});
+	// COMPLETELY AVOID all data-* selectors - no exceptions
+	bannerSelectors = bannerSelectors.filter(selector => !selector.includes('data-'));
 	
 	// Join selectors and query all
 	const elements = document.querySelectorAll(bannerSelectors.join(','));
 	
-	// Check each element
+	// Check each element, skipping any with data attributes
 	elements.forEach(element => {
-		checkElementForCookieBanner(element);
+		// Skip elements with ANY data attributes
+		const hasDataAttributes = Array.from(element.attributes || [])
+			.some(attr => attr.name.startsWith('data-'));
+			
+		if (!hasDataAttributes) {
+			checkElementForCookieBanner(element);
+		}
 	});
 	
 	// Check for X/Grok history windows - but only if explicitly in selectors
@@ -576,12 +600,23 @@ function checkExistingElements() {
 							window.location.hostname.includes('x.com');
 		
 		if (!isTwitterOrX && xGrokSelectors.length > 0) {
-			const xGrokElements = document.querySelectorAll(xGrokSelectors.join(','));
+			// Filter out any data-attribute selectors for X/Grok as well
+			const filteredXGrokSelectors = xGrokSelectors.filter(selector => !selector.includes('data-'));
 			
-			xGrokElements.forEach(element => {
-				// Process but do not close automatically
-				processCookieElement(element, null, 'xGrok');
-			});
+			if (filteredXGrokSelectors.length > 0) {
+				const xGrokElements = document.querySelectorAll(filteredXGrokSelectors.join(','));
+				
+				xGrokElements.forEach(element => {
+					// Skip elements with ANY data attributes
+					const hasDataAttributes = Array.from(element.attributes || [])
+						.some(attr => attr.name.startsWith('data-'));
+						
+					if (!hasDataAttributes) {
+						// Process but do not close automatically
+						processCookieElement(element, null, 'xGrok');
+					}
+				});
+			}
 		}
 	}
 }
@@ -592,10 +627,18 @@ function checkExistingElements() {
  */
 function checkElementForCookieBanner(element) {
 	// Skip if extension is disabled
-	if (!settings.enabled) return;
+	if (!settings || !settings.enabled) return;
 	
 	// Ignore certain elements
 	if (!element || !element.tagName || element.tagName === 'SCRIPT' || element.tagName === 'STYLE') {
+		return;
+	}
+	
+	// Skip elements with ANY data attributes
+	const hasDataAttributes = Array.from(element.attributes || [])
+		.some(attr => attr.name.startsWith('data-'));
+		
+	if (hasDataAttributes) {
 		return;
 	}
 	
@@ -884,6 +927,72 @@ function generateDialogId(element) {
 	
 	// Create a hash of these properties
 	return `${tag}_${id}_${classes}_${position}_${textContent.replace(/\s+/g, '')}`.replace(/[^a-zA-Z0-9_]/g, '');
+}
+
+/**
+ * Click the appropriate button based on button preferences
+ * @param {Element} element - The dialog element
+ * @returns {Promise<boolean>} - Whether a button was clicked
+ */
+async function clickAppropriateButton(element) {
+	try {
+		if (!element || !settings.enabled) return false;
+		
+		// Get the button preferences and order
+		const { buttonPreferences } = settings;
+		const { order, enabled } = buttonPreferences;
+		
+		// Create button finder instance
+		const { buttonFinder } = getSyncFinders();
+		
+		// Try each button type in the configured order
+		let button = null;
+		
+		for (const buttonType of order) {
+			// Skip if this button type is disabled
+			if (!enabled[buttonType]) continue;
+			
+			// Find the appropriate button based on type
+			if (buttonType === 'essential' || buttonType === 'reject') {
+				button = buttonFinder.findRejectButton(element);
+			} else if (buttonType === 'accept') {
+				button = buttonFinder.findAcceptButton(element);
+			} else if (buttonType === 'customize') {
+				button = buttonFinder.findCustomizeButton(element);
+			}
+			
+			// If we found a button, click it and return
+			if (button) {
+				console.log(`Cookie Consent Manager: Clicking ${buttonType} button`);
+				clickElement(button);
+				return true;
+			}
+		}
+		
+		// Fallback for basic mode if no buttons matched preferences
+		if (settings.preferEssential) {
+			// First try necessary cookies button
+			const necessaryButton = buttonFinder.findRejectButton(element);
+			if (necessaryButton) {
+				console.log('Cookie Consent Manager: Clicking necessary cookies button (fallback)');
+				clickElement(necessaryButton);
+				return true;
+			}
+		}
+		
+		// Then try accept button
+		const acceptButton = buttonFinder.findAcceptButton(element);
+		if (acceptButton) {
+			console.log('Cookie Consent Manager: Clicking accept button (fallback)');
+			clickElement(acceptButton);
+			return true;
+		}
+		
+		return false;
+	} catch (error) {
+		console.error('Error in clickAppropriateButton:', error);
+		return false;
+	}
 }
 
 /**
@@ -1399,155 +1508,6 @@ function findCookieElements() {
 }
 
 /**
- * Click the appropriate button based on the user's preferences
- * @param {Element} element - The cookie dialog element
- */
-async function clickAppropriateButton(element) {
-	// IMMEDIATELY abort if disabled - hardened check
-	if (!settings || !settings.enabled || !settings.autoAccept) {
-		console.log('Cookie Consent Manager is disabled or auto-accept is off, aborting click');
-		return;
-	}
-	
-	// Check if we have advanced button preferences (premium users)
-	if (settings.buttonPreferences && settings.buttonPreferences.order) {
-		// Follow the preference order defined by the user
-		for (const buttonType of settings.buttonPreferences.order) {
-			// Skip disabled button types
-			if (settings.buttonPreferences.enabled[buttonType] === false) {
-				continue;
-			}
-			
-			let button = null;
-			
-			// Find the appropriate button based on type
-			switch (buttonType) {
-				case 'essential':
-					button = await findNecessaryCookiesButton(element);
-					break;
-				case 'reject':
-					button = await findRejectButton(element);
-					break;
-				case 'accept':
-					button = await findAcceptButton(element);
-					break;
-			}
-			
-			// If button found, click it and exit
-			if (button) {
-				console.log(`Cookie Consent Manager: Clicking ${buttonType} button based on user preferences`);
-				clickElement(button);
-				return;
-			}
-		}
-	} else if (settings.preferEssential) {
-		// Basic mode - prefer essential cookies if setting is enabled
-		const necessaryButton = await findNecessaryCookiesButton(element);
-		if (necessaryButton) {
-			console.log('Cookie Consent Manager: Clicking essential cookies button');
-			clickElement(necessaryButton);
-			return;
-		}
-		
-		// Fallback to accept button if necessary button not found
-		const acceptButton = await findAcceptButton(element);
-		if (acceptButton) {
-			console.log('Cookie Consent Manager: No essential button found, clicking accept button');
-			clickElement(acceptButton);
-		}
-	} else {
-		// Non-Pro mode default behavior: 
-		// 1. First try to click the accept button (accept all cookies)
-		const acceptButton = await findAcceptButton(element);
-		if (acceptButton) {
-			console.log('Cookie Consent Manager: Clicking accept button (non-Pro default)');
-			clickElement(acceptButton);
-			return;
-		}
-		
-		// 2. If accept button not found, try necessary cookies button as fallback
-		const necessaryButton = await findNecessaryCookiesButton(element);
-		if (necessaryButton) {
-			console.log('Cookie Consent Manager: No accept button found, clicking essential cookies button');
-			clickElement(necessaryButton);
-			return;
-		}
-		
-		// 3. Reject buttons are not used in non-Pro mode by default
-	}
-}
-
-/**
- * Attempt to click an accept button within a cookie dialog
- * @param {Element} dialogElement - The cookie dialog element
- * @returns {boolean} True if successfully clicked an accept button
- */
-async function clickAcceptButton(dialogElement) {
-	// Try to find the button using the button-recognition module
-	const acceptButton = await findAcceptButton(dialogElement);
-	if (acceptButton) {
-		return clickElement(acceptButton);
-	}
-	
-	// Fall back to loaded selectors if no button found
-	const acceptSelectors = selectors.buttonTypes?.accept?.selectors || [];
-	const acceptTextPatterns = selectors.buttonTypes?.accept?.textPatterns || [];
-	
-	for (const selector of acceptSelectors) {
-		try {
-			const buttons = dialogElement.querySelectorAll(selector);
-			for (const button of buttons) {
-				// Check if the button text contains accept-related words
-				const buttonText = button.textContent.toLowerCase();
-				if (acceptTextPatterns.some(pattern => buttonText.includes(pattern))) {
-					// Click the button
-					return clickElement(button);
-				}
-			}
-		} catch (e) {
-			console.error('Error with accept selector', selector, e);
-		}
-	}
-	
-	return false;
-}
-
-/**
- * Attempt to click a customize/settings button within a cookie dialog
- * @param {Element} dialogElement - The cookie dialog element
- * @returns {boolean} True if successfully clicked a customize button
- */
-async function clickCustomizeButton(dialogElement) {
-	// Try to find the button using the button-recognition module
-	const settingsButton = await findSettingsButton(dialogElement);
-	if (settingsButton) {
-		return clickElement(settingsButton);
-	}
-	
-	// Fall back to loaded selectors if no button found
-	const customizeSelectors = selectors.buttonTypes?.customize?.selectors || [];
-	const customizeTextPatterns = selectors.buttonTypes?.customize?.textPatterns || [];
-	
-	for (const selector of customizeSelectors) {
-		try {
-			const buttons = dialogElement.querySelectorAll(selector);
-			for (const button of buttons) {
-				// Check if the button text contains customize-related words
-				const buttonText = button.textContent.toLowerCase();
-				if (customizeTextPatterns.some(pattern => buttonText.includes(pattern))) {
-					// Click the button
-					return clickElement(button);
-				}
-			}
-		} catch (e) {
-			console.error('Error with customize selector', selector, e);
-		}
-	}
-	
-	return false;
-}
-
-/**
  * Completely stop all cookie detection
  * This is used when the extension is disabled or auto-accept is turned off
  */
@@ -1629,4 +1589,87 @@ function stopAllDetection() {
 	window.__cookieDetectionStopped = true;
 	
 	console.log('All cookie detection mechanisms stopped completely');
+}
+
+/**
+ * Attempt to click an accept button within a cookie dialog
+ * @param {Element} dialogElement - The cookie dialog element
+ * @returns {boolean} True if successfully clicked an accept button
+ */
+async function clickAcceptButton(dialogElement) {
+	if (!dialogElement) return false;
+	
+	// Get the button finder instance
+	const { buttonFinder } = getSyncFinders();
+	
+	// Try to find the button using the new finder
+	const acceptButton = buttonFinder.findAcceptButton(dialogElement);
+	if (acceptButton) {
+		return clickElement(acceptButton);
+	}
+	
+	return false;
+}
+
+/**
+ * Attempt to click a customize/settings button within a cookie dialog
+ * @param {Element} dialogElement - The cookie dialog element
+ * @returns {boolean} True if successfully clicked a customize button
+ */
+async function clickCustomizeButton(dialogElement) {
+	if (!dialogElement) return false;
+	
+	// Get the button finder instance
+	const { buttonFinder } = getSyncFinders();
+	
+	// Try to find the button using the new finder
+	const customizeButton = buttonFinder.findCustomizeButton(dialogElement);
+	if (customizeButton) {
+		return clickElement(customizeButton);
+	}
+	
+	return false;
+}
+
+/**
+ * Set up a mutation observer to detect newly added cookie banners
+ */
+function setupMutationObserver() {
+	// Skip if extension is disabled
+	if (!settings || !settings.enabled) return;
+	
+	const observer = new MutationObserver((mutations) => {
+		// Skip observations if extension is disabled or detection timeout has elapsed
+		if (!settings.enabled || (Date.now() - pageLoadTime > MAX_DETECTION_TIME)) {
+			observer.disconnect();
+			return;
+		}
+		
+		for (const mutation of mutations) {
+			if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
+				for (let i = 0; i < mutation.addedNodes.length; i++) {
+					const node = mutation.addedNodes[i];
+					
+					// Only process element nodes
+					if (node.nodeType === Node.ELEMENT_NODE) {
+						// Skip elements with data attributes
+						const hasDataAttributes = Array.from(node.attributes || [])
+							.some(attr => attr.name.startsWith('data-'));
+						
+						if (!hasDataAttributes) {
+							checkElementForCookieBanner(node);
+						}
+					}
+				}
+			}
+		}
+	});
+	
+	observer.observe(document.body || document.documentElement, {
+		childList: true,
+		subtree: true
+	});
+	
+	// Store the observer so we can disconnect it later
+	observers.push(observer);
 } 

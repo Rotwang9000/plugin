@@ -1,7 +1,7 @@
 // Import required modules
 import { ukPrivacyTerms } from '../modules/cloudDatabase.js';
 import { isElementVisible, hasHighZIndex } from '../utils/elementInteraction.js';
-import { findAcceptButton, findNecessaryCookiesButton } from '../utils/buttonFinders.js';
+import { getSyncFinders } from '../utils/finders/index.js';
 import { processCookieElement } from './dialogCapture.js';
 import { settings } from '../modules/settings.js';
 
@@ -86,8 +86,11 @@ function checkElementForCookieBanner(element) {
 		
 		// Increase confidence if the element was added by JavaScript
 		if (hasButtons && (likelyJsAdded || hasHighZIndex(element))) {
-			// Verify there's an accept button
-			const acceptButton = findAcceptButton(element);
+			// Get the button finder instance
+			const { buttonFinder } = getSyncFinders();
+			
+			// Verify there's an accept button using the new finder
+			const acceptButton = buttonFinder.findAcceptButton(element);
 			if (acceptButton) {
 				// Process this as a cookie element
 				console.log('Cookie Consent Manager: Detected cookie consent dialog via smart formula', element);
@@ -227,10 +230,13 @@ function analyzeBoxSource(source) {
 		const buttons = container.querySelectorAll('button, a[role="button"], [type="button"], [type="submit"], [class*="button"], [class*="btn"]');
 		const hasButtons = buttons.length > 0;
 		
-		// Look for accept button
+		// Get the button finder instance
+		const { buttonFinder } = getSyncFinders();
+		
+		// Look for accept button using the new finder
 		let acceptButton, hasAcceptButton;
 		try {
-			acceptButton = findAcceptButton(container);
+			acceptButton = buttonFinder.findAcceptButton(container);
 			hasAcceptButton = !!acceptButton;
 		} catch (buttonError) {
 			console.error('Error finding accept button:', buttonError);
@@ -240,10 +246,10 @@ function analyzeBoxSource(source) {
 			};
 		}
 		
-		// Look for necessary cookies button
+		// Look for necessary cookies button using the new finder
 		let necessaryButton, hasNecessaryButton;
 		try {
-			necessaryButton = findNecessaryCookiesButton(container);
+			necessaryButton = buttonFinder.findRejectButton(container);
 			hasNecessaryButton = !!necessaryButton;
 		} catch (buttonError) {
 			console.error('Error finding necessary button:', buttonError);

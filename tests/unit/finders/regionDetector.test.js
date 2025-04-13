@@ -6,37 +6,59 @@ import { RegionDetector } from '../../../src/utils/finders/regionDetector.js';
 
 // Mock selectors for testing
 const mockSelectors = {
-	regionDetection: {
-		eu: {
-			textPatterns: [
-				{ pattern: 'gdpr', priority: 10 },
-				{ pattern: 'european union', priority: 10 },
-				{ pattern: 'eu cookie law', priority: 9 }
-			],
-			locationPatterns: [
-				'.eu',
-				'.de',
-				'.fr',
-				'.uk',
-				'.es'
-			]
-		},
-		california: {
-			textPatterns: [
-				{ pattern: 'ccpa', priority: 10 },
-				{ pattern: 'california consumer privacy act', priority: 10 },
-				{ pattern: 'california residents', priority: 8 }
-			],
-			locationPatterns: [
-				'.ca.gov'
-			]
-		},
-		international: {
-			textPatterns: [
-				{ pattern: 'international', priority: 5 },
-				{ pattern: 'global', priority: 5 }
-			]
-		}
+	tldPatterns: {
+		eu: [
+			'.eu',
+			'.de',
+			'.fr',
+			'.uk',
+			'.es'
+		],
+		california: [
+			'.ca.gov'
+		],
+		us: [
+			'.us'
+		],
+		global: [
+			'.com',
+			'.org',
+			'.net'
+		]
+	},
+	languagePatterns: {
+		eu: [
+			'en-GB',
+			'de',
+			'fr',
+			'es'
+		],
+		us: [
+			'en-US'
+		],
+		global: [
+			'en'
+		]
+	},
+	contentPatterns: {
+		eu: [
+			'gdpr',
+			'european union',
+			'eu cookie law'
+		],
+		california: [
+			'ccpa',
+			'california consumer privacy act',
+			'california residents'
+		],
+		us: [
+			'usa privacy',
+			'us privacy laws'
+		],
+		global: [
+			'international',
+			'global'
+		]
 	}
 };
 
@@ -73,10 +95,10 @@ describe('RegionDetector', () => {
 		expect(region).toBe('california');
 	});
 	
-	test('detectRegion should default to international if no matches', () => {
+	test('detectRegion should default to global if no matches', () => {
 		dialog.textContent = 'Cookie Policy';
-		const region = regionDetector.detectRegion(dialog, 'example.com');
-		expect(region).toBe('international');
+		const region = regionDetector.detectRegion(dialog, 'example.info');
+		expect(region).toBe('global');
 	});
 	
 	test('detectRegion should prioritize text patterns over domain', () => {

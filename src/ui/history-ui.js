@@ -8,15 +8,17 @@ import { getDialogHistory, markDialogAsReviewed } from '../modules/storage.js';
 /**
  * Load all dialogs from history
  * @param {string} filterType - Type of filter to apply (all, auto_accepted, ignored, current_page)
+ * @param {Function} callback - Optional callback function to call with the loaded dialogs
  * @returns {Promise} Promise that resolves with filtered dialogs
  */
-export function loadAllDialogs(filterType = 'all') {
+export function loadAllDialogs(filterType = 'all', callback) {
 	return new Promise((resolve) => {
 		getDialogHistory((dialogs) => {
 			// Debug: Log what we're getting
 			console.log(`Loading dialogs with filter: ${filterType}. Total: ${dialogs.length}`);
 			
 			if (filterType === 'all') {
+				if (typeof callback === 'function') callback(dialogs);
 				resolve(dialogs);
 				return;
 			}
@@ -66,6 +68,12 @@ export function loadAllDialogs(filterType = 'all') {
 				}
 				
 				console.log(`Filter ${filterType} resulted in ${filteredDialogs.length} dialogs`);
+				
+				// Call the callback if provided
+				if (typeof callback === 'function') {
+					callback(filteredDialogs);
+				}
+				
 				resolve(filteredDialogs);
 			});
 		});
@@ -188,7 +196,7 @@ export function displayAllDialogs(dialogs) {
 				// Display dialog details
 				displayDialogDetails(dialog);
 				
-				// Switch to details tab
+				// Switch to details tab using the proper exported function
 				switchToDetailsTab();
 			});
 		});
@@ -211,12 +219,36 @@ export function displayAllDialogs(dialogs) {
 		if (detailsTab) detailsTab.classList.add('active');
 		if (detailsContent) detailsContent.classList.add('active');
 		
-		// Also show the dialog details container and hide the "no selection" message
+		// Get container elements
 		const dialogDetailContainer = document.getElementById('dialogDetailContainer');
 		const noSelectionMessage = document.getElementById('noSelectionMessage');
+		const detectedElementsContainer = document.getElementById('detectedElementsContainer');
+		const buttonClassificationsContainer = document.getElementById('buttonClassificationsContainer'); 
+		const optionClassificationsContainer = document.getElementById('optionClassificationsContainer');
+		const reviewContainer = document.getElementById('reviewContainer');
 		
-		if (dialogDetailContainer) dialogDetailContainer.style.display = 'block';
-		if (noSelectionMessage) noSelectionMessage.style.display = 'none';
+		// Check if we have a current dialog
+		if (window.currentDialog) {
+			// Show dialog details and hide no selection message
+			if (dialogDetailContainer) dialogDetailContainer.style.display = 'block';
+			if (noSelectionMessage) noSelectionMessage.style.display = 'none';
+			
+			// Dispatch an event for popup_fixed.js to handle the classifications
+			const dialogDetailsEvent = new CustomEvent('switchedToDetailsTab', { 
+				detail: window.currentDialog 
+			});
+			document.dispatchEvent(dialogDetailsEvent);
+		} else {
+			// No dialog selected, show message and hide details
+			if (dialogDetailContainer) dialogDetailContainer.style.display = 'none';
+			if (noSelectionMessage) noSelectionMessage.style.display = 'block';
+			
+			// Hide all detail containers when no dialog is selected
+			if (detectedElementsContainer) detectedElementsContainer.style.display = 'none';
+			if (buttonClassificationsContainer) buttonClassificationsContainer.style.display = 'none';
+			if (optionClassificationsContainer) optionClassificationsContainer.style.display = 'none';
+			if (reviewContainer) reviewContainer.style.display = 'none';
+		}
 	}
 }
 
@@ -226,6 +258,18 @@ export function displayAllDialogs(dialogs) {
  * @param {Element} container - Container element
  */
 export function renderDialogItems(dialogs, container) {
+	console.log(`Rendering ${dialogs.length} dialog items in container:`, container);
+	
+	// Clear the container first to avoid duplicate entries
+	clearElement(container);
+	
+	// Show a message if no dialogs found
+	if (!dialogs || dialogs.length === 0) {
+		container.innerHTML = '<div class="no-dialogs">No cookie dialogs have been captured yet.</div>';
+		return;
+	}
+	
+	// Add each dialog item to the container
 	dialogs.forEach(dialog => {
 		const reviewClass = dialog.reviewed ? 'reviewed' : 'not-reviewed';
 		const dateStr = dialog.capturedAt 
@@ -241,49 +285,38 @@ export function renderDialogItems(dialogs, container) {
 		createElement('div', { className: 'history-item-domain' }, 
 			(dialog.domain || (dialog.url ? new URL(dialog.url).hostname : 'Unknown')), item);
 		
-		// Add detection method
+		// Create method and date in the same container to reduce spacing
+		const metaContainer = createElement('div', { 
+			className: 'history-item-meta',
+			style: 'display: flex; justify-content: space-between; font-size: 12px; color: #666; margin-top: 2px;'
+		}, null, item);
+		
+		// Add method
 		const methodDisplay = dialog.method 
-			? `Method: ${dialog.method}` 
-			: 'Manual detection';
-		createElement('div', { className: 'history-item-method' }, methodDisplay, item);
+			? dialog.method
+			: 'manual';
+		createElement('div', { className: 'history-item-method' }, methodDisplay, metaContainer);
 		
 		// Add date
-		createElement('div', { className: 'history-item-date' }, dateStr, item);
+		createElement('div', { className: 'history-item-date' }, dateStr, metaContainer);
 		
-		// Add indicators for auto-accepted and current page
-		const indicators = createElement('div', { className: 'indicators' }, null, item);
-		
-		// Check if this is auto-accepted
-		if (dialog.method && (
-			dialog.method.includes('auto') || 
-			dialog.method.includes('cloud') || 
-			dialog.method.includes('smart')
-		)) {
-			createElement('span', { 
-				className: 'site-indicator auto-accepted',
-				title: 'Auto-accepted'
-			}, '', indicators);
-		}
-		
-		// Check if this is from the current page - will be determined when displaying
-		chrome.tabs.query({active: true, currentWindow: true}, (tabs) => {
-			if (tabs && tabs[0] && dialog.domain) {
-				try {
-					const currentUrl = tabs[0].url;
-					const currentDomain = new URL(currentUrl).hostname;
-					
-					if (currentDomain.includes(dialog.domain) || dialog.domain.includes(currentDomain)) {
-						createElement('span', { 
-							className: 'site-indicator current-page',
-							title: 'Current page'
-						}, '', indicators);
-					}
-				} catch (e) {
-					console.error('Error checking current page:', e);
-				}
-			}
+		// Add click handler to this specific item
+		item.addEventListener('click', () => {
+			// Remove active class from all items
+			document.querySelectorAll('.history-item').forEach(i => i.classList.remove('active'));
+			
+			// Add active class to clicked item
+			item.classList.add('active');
+			
+			// Display dialog details
+			displayDialogDetails(dialog);
+			
+			// Switch to details tab using the proper exported function
+			switchToDetailsTab();
 		});
 	});
+	
+	console.log(`Rendered ${dialogs.length} dialog items successfully`);
 }
 
 /**
@@ -296,6 +329,10 @@ export function displayDialogDetails(dialog) {
 	const detailedInfo = document.getElementById('detailedInfo');
 	const buttonClassificationsList = document.getElementById('buttonClassificationsList');
 	const optionClassificationsList = document.getElementById('optionClassificationsList');
+	const detectedElementsContainer = document.getElementById('detectedElementsContainer');
+	const buttonClassificationsContainer = document.getElementById('buttonClassificationsContainer');
+	const optionClassificationsContainer = document.getElementById('optionClassificationsContainer');
+	const reviewContainer = document.getElementById('reviewContainer');
 	
 	if (!dialogDetailContainer || !detailedInfo) {
 		console.error('Dialog detail container not found');
@@ -351,6 +388,32 @@ export function displayDialogDetails(dialog) {
 		valueSpan.innerHTML = item.value; // Using innerHTML to support links
 	});
 	
+	// Show/hide containers based on dialog content
+	if (detectedElementsContainer) {
+		detectedElementsContainer.style.display = dialog.detectedElements && dialog.detectedElements.length > 0 ? 'block' : 'none';
+	}
+	
+	// Button classifications container should only be shown if dialog has buttons
+	if (buttonClassificationsContainer) {
+		const hasButtons = dialog.detectedElements && dialog.detectedElements.some(el => 
+			el.type?.toLowerCase().includes('button') || el.tagName === 'BUTTON' || 
+			(el.tagName === 'A' && el.role === 'button'));
+		buttonClassificationsContainer.style.display = hasButtons ? 'block' : 'none';
+	}
+	
+	// Option classifications container should only be shown if dialog has options
+	if (optionClassificationsContainer) {
+		const hasOptions = dialog.detectedElements && dialog.detectedElements.some(el => 
+			el.type?.toLowerCase().includes('option') || 
+			(el.tagName === 'INPUT' && ['checkbox', 'radio'].includes(el.inputType)));
+		optionClassificationsContainer.style.display = hasOptions ? 'block' : 'none';
+	}
+	
+	// Always show review container when a dialog is selected
+	if (reviewContainer) {
+		reviewContainer.style.display = 'block';
+	}
+	
 	// Store dialog globally for later reference
 	window.currentDialog = dialog;
 	window.currentDialogId = dialog.id;
@@ -359,41 +422,6 @@ export function displayDialogDetails(dialog) {
 	// This can be done via a custom event since we can't directly import it
 	const dialogDetailsEvent = new CustomEvent('dialogDetailsLoaded', { detail: dialog });
 	document.dispatchEvent(dialogDetailsEvent);
-}
-
-/**
- * Switch to the details tab and update UI
- */
-export function switchToDetailsTab() {
-	// Find all tabs and tab contents
-	const tabs = document.querySelectorAll('.tab');
-	const tabContents = document.querySelectorAll('.tab-content');
-	
-	// Remove active class from all tabs and contents
-	tabs.forEach(tab => tab.classList.remove('active'));
-	tabContents.forEach(content => content.classList.remove('active'));
-	
-	// Activate the details tab
-	const detailsTab = document.querySelector('.tab[data-tab="details"]');
-	const detailsContent = document.getElementById('details-tab');
-	
-	if (detailsTab) detailsTab.classList.add('active');
-	if (detailsContent) detailsContent.classList.add('active');
-	
-	// Also show the dialog details container and hide the "no selection" message
-	const dialogDetailContainer = document.getElementById('dialogDetailContainer');
-	const noSelectionMessage = document.getElementById('noSelectionMessage');
-	
-	if (dialogDetailContainer) dialogDetailContainer.style.display = 'block';
-	if (noSelectionMessage) noSelectionMessage.style.display = 'none';
-	
-	// Dispatch an event for popup_fixed.js to handle the classifications
-	if (window.currentDialog) {
-		const dialogDetailsEvent = new CustomEvent('switchedToDetailsTab', { 
-			detail: window.currentDialog 
-		});
-		document.dispatchEvent(dialogDetailsEvent);
-	}
 }
 
 /**
@@ -441,4 +469,87 @@ export function markDialogReviewed(dialogId) {
 			item.classList.add('reviewed');
 		}
 	});
+}
+
+/**
+ * Display history dialogs in the UI with filter controls
+ * @param {Array} dialogs - Array of dialog objects
+ */
+export function displayHistoryDialogs(dialogs) {
+	const historyContainer = document.getElementById('historyList');
+	console.log(`displayHistoryDialogs called with ${dialogs?.length || 0} dialogs, container:`, historyContainer);
+	
+	if (!historyContainer) {
+		console.error('History container (historyList) not found!');
+		return;
+	}
+	
+	// Clear existing content
+	clearElement(historyContainer);
+	
+	if (!dialogs || dialogs.length === 0) {
+		console.log('No dialogs to display, showing empty message');
+		historyContainer.innerHTML = '<div class="no-dialogs">No cookie dialogs have been captured yet.</div>';
+		return;
+	}
+	
+	// Check if we have filter controls
+	const controls = {
+		filterSelect: document.getElementById('historyFilter'),
+		clearButton: document.getElementById('clearHistoryBtn')
+	};
+	
+	// Sort dialogs by date, newest first
+	const sortedDialogs = [...dialogs].sort((a, b) => {
+		return new Date(b.capturedAt || 0) - new Date(a.capturedAt || 0);
+	});
+	
+	console.log(`Rendering ${sortedDialogs.length} sorted dialogs`);
+	
+	// Render the dialog items directly to the history container
+	renderDialogItems(sortedDialogs, historyContainer);
+	
+	// Add filter change handler
+	if (controls.filterSelect) {
+		// Only add listener if it doesn't already have one
+		if (!controls.filterSelect.hasChangeListener) {
+			controls.filterSelect.addEventListener('change', () => {
+				console.log(`Filter changed to ${controls.filterSelect.value}, loading dialogs...`);
+				loadAllDialogs(controls.filterSelect.value, displayHistoryDialogs);
+			});
+			controls.filterSelect.hasChangeListener = true;
+		}
+	}
+	
+	// Add clear history handler
+	if (controls.clearButton) {
+		// Only add listener if it doesn't already have one
+		if (!controls.clearButton.hasClickListener) {
+			controls.clearButton.addEventListener('click', () => {
+				if (confirm('Are you sure you want to clear all history?')) {
+					chrome.storage.local.set({ dialogHistory: [] }, () => {
+						// Refresh the list after clearing
+						loadAllDialogs('all', displayHistoryDialogs);
+					});
+				}
+			});
+			controls.clearButton.hasClickListener = true;
+		}
+	}
+}
+
+/**
+ * Switch to the details tab and update UI
+ */
+export function switchToDetailsTab() {
+	// Find the details tab element
+	const detailsTab = document.querySelector('.tab[data-tab="details"]');
+	
+	if (detailsTab) {
+		// Programmatically click the tab to trigger the tab's click handler
+		// This will call the showTab function in popup_fixed.js
+		detailsTab.click();
+	} else {
+		console.error('Details tab element not found');
+	}
 } 

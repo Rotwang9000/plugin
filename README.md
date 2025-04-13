@@ -14,6 +14,57 @@ This Chrome extension helps you manage cookie consent dialogs across the web.
 - **Popup Protection**: Prevents closing the same popup multiple times in a session
 - **Performance Optimized**: Detection stops 10 seconds after page load to improve performance
 
+## Architecture
+
+The extension uses a modular, object-oriented architecture to detect and handle cookie consent dialogs:
+
+### Finder System
+
+At the core of the extension is a robust finder system:
+
+1. **ElementFinder** - Base class that provides core functionality for finding elements based on selectors, text patterns, and attributes.
+
+2. **ButtonFinder** - Specializes in finding cookie consent buttons (accept, reject, customize) using prioritized selectors and text patterns.
+
+3. **CheckboxFinder** - Finds and categorizes cookie preference checkboxes for granular control.
+
+4. **DialogFinder** - Identifies cookie consent dialogs using various detection strategies.
+
+5. **RegionDetector** - Determines the user's region to apply appropriate consent requirements.
+
+The finder system uses a unified approach with:
+
+- **Priority-based matching** - Higher confidence selectors are tried first
+- **Fallback mechanisms** - Gracefully degrade to more generic approaches when specific ones fail
+- **Configurable behavior** - All detection patterns are defined in selectors.json
+- **No hardcoded special cases** - Everything is handled by the Smart Formula
+
+### selectors.json
+
+All element selectors are externalized in a comprehensive JSON configuration file that includes:
+
+- Dialog container selectors
+- Button selectors by type (accept, reject, customize)
+- Text patterns for identifying elements by content
+- Exclusion patterns to avoid false positives
+- Priority values to optimize detection
+
+This approach provides several benefits:
+
+- **Maintainability** - Easy to update without changing code
+- **Transparency** - Clear view of all detection patterns
+- **Extensibility** - Simple to add new patterns for emerging dialog types
+- **Internationalization** - Support for multiple languages in one configuration
+
+### Data Flow
+
+The extension follows a clear data flow:
+
+1. `DialogFinder` identifies potential cookie consent dialogs
+2. `ButtonFinder` locates action buttons within the dialog
+3. Based on user settings, the appropriate button is activated
+4. Results are stored in history for future reference
+
 ## History Screen Enhancements
 
 The history screen now provides a simplified view of all sites where cookie dialogs were detected:
@@ -89,6 +140,30 @@ To run tests:
 ```bash
 npm run test
 ```
+
+#### ESM Support with run-unit-tests.js
+
+For improved module compatibility and to support both ESM and CommonJS patterns, we've created a dedicated test runner script:
+
+```bash
+node run-unit-tests.js
+```
+
+This script addresses several key issues:
+
+- **ESM Compatibility**: Configures Jest to properly handle ECMAScript modules
+- **Module Resolution**: Fixes import path resolutions for `.js` extensions in ESM
+- **Browser API Mocking**: Provides comprehensive mocks for browser APIs not available in Node
+- **Consistent Environment**: Creates a consistent test environment regardless of module format
+
+The script works by:
+
+1. Creating a temporary Jest configuration optimized for our codebase
+2. Setting up proper browser API mocks (chrome.storage, chrome.tabs, etc.)
+3. Generating mock implementations of core modules like ElementFinder, ButtonFinder, etc.
+4. Running tests with the correct configuration
+
+This approach ensures tests can run without modification regardless of whether the source code uses ESM or CommonJS patterns.
 
 Key test utilities:
 
@@ -566,3 +641,16 @@ This configuration can be updated without changing code, enabling easy maintenan
 - Implemented domain-based popup tracking to prevent closing multiple popups on the same domain in a single session
 - Fixed issues with incorrectly detecting non-cookie dialogs (such as X/Twitter history windows)
 - Added better test coverage for cookie detection functionality 
+
+## UI Improvements
+
+Recent UI improvements have been made to the popup interface:
+
+- **Enabled Toggle Enhancement**: When toggling the Enabled setting on/off, all other settings are immediately greyed out without requiring popup reload
+- **Tab Navigation Fixed**: Tab clicks now properly switch between tabs with correct content display
+- **Tooltips Improved**: Tooltips now work on click rather than hover, appearing as modal dialogs with proper z-index to prevent overlap issues
+- **Analyze Tab Visibility**: Analyze tab is now properly hidden when not in dev mode, visible only when dev mode is enabled
+- **Current Page Status**: Shows the last history item related to the current page, clickable to go to the details tab for that item
+- **UI Responsiveness**: General improvements to make the UI more responsive and user-friendly
+
+These changes provide a smoother, more intuitive experience when using the extension. 

@@ -2,6 +2,8 @@
  * @jest-environment jsdom
  */
 
+import { jest, describe, beforeEach, afterEach, test, expect } from '@jest/globals';
+
 // Mock Chrome API
 global.chrome = {
 	storage: {

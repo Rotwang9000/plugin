@@ -1,7 +1,7 @@
 // Import required modules
 import { sanitizeUrl } from '../utils/privacy.js';
 import { detectRegion, settings, openedByExtension } from '../modules/settings.js';
-import { findAcceptButton, findNecessaryCookiesButton } from '../utils/buttonFinders.js';
+import { getSyncFinders } from '../utils/finders/index.js';
 import { clickElement } from '../utils/elementInteraction.js';
 
 /**
@@ -125,9 +125,12 @@ function processCookieElement(element, selector, method) {
 	// First, check for buttons
 	const isPremiumUser = settings.gdprCompliance; // This would be replaced with actual premium check
 	
+	// Get the button finder instance
+	const { buttonFinder } = getSyncFinders();
+	
 	if (isPremiumUser && settings.gdprCompliance && detectRegion(window.location.hostname) === 'uk') {
-		// For GDPR compliance, try to find necessary-only button first
-		const necessaryButton = findNecessaryCookiesButton(element);
+		// For GDPR compliance, try to find necessary-only button first using the new finder
+		const necessaryButton = buttonFinder.findRejectButton(element);
 		if (necessaryButton) {
 			// Extra safety check - don't click if it's an informational link
 			if (necessaryButton.tagName === 'A' && 
@@ -156,7 +159,7 @@ function processCookieElement(element, selector, method) {
 	}
 	
 	// If no necessary button found or GDPR compliance is off, try the regular accept button
-	const acceptButton = findAcceptButton(element);
+	const acceptButton = buttonFinder.findAcceptButton(element);
 	if (acceptButton) {
 		// Extra safety check - don't click if it's an informational link
 		if (acceptButton.tagName === 'A' && 
